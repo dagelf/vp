@@ -85,18 +85,32 @@ vp/
 
 ## 3. Implementation Phases
 
-### Phase 1: Minimal CLI (Day 1)
+**Approach**: UI-First Development
+Build the web interface early to visualize system processes, then progressively add management capabilities.
 
-**Goal**: Working CLI that can list system processes and manage basic templates.
+**Phase Overview:**
+1. **Data Models & Process Reading** - Define structures, read from /proc
+2. **Web UI & API Server** - Display current processes in browser
+3. **Template Management** - Create/edit process templates (simple text format)
+4. **Instance Management** - Start/stop processes from templates
+5. **Resource Management** - Generic resource allocation and conflict detection
+6. **Connection Commands** - One-click access to running services
+7. **Logging & History** - Event tracking and visualization
+
+---
+
+### Phase 1: Data Models & Process Reading
+
+**Goal**: Define data structures and read current system processes.
 
 **Tasks:**
 1. Initialize Go module (`go mod init github.com/user/vp`)
-2. Create basic CLI structure using `flag` package (stdlib)
-3. Implement `vp list` - list currently running system processes
-4. Create Template struct with JSON marshaling
-5. Implement `vp template add` - add template from JSON file
-6. Implement `vp template list` - list available templates
-7. File-based storage in `~/.vibeprocess/` directory
+2. Define core data structures (Template, ProcessInstance, Resources)
+3. Implement process discovery from `/proc` (Linux) or `ps` command
+4. Parse process information (PID, command, CPU, memory)
+5. Create process list data structure
+6. Implement basic JSON marshaling for API responses
+7. Write unit tests for process parsing
 
 **Data Structures:**
 ```go
@@ -112,358 +126,94 @@ type Template struct {
     Notes           string            `json:"notes,omitempty"`
 }
 
-type Resources struct {
-    Ports []string `json:"ports,omitempty"`
-    Files []string `json:"files,omitempty"`
-}
-```
-
-**CLI Interface:**
-```bash
-vp list                          # List all running processes (system-wide)
-vp template add node-express.json  # Add template from file
-vp template list                 # List available templates
-vp template show node-express    # Show template details
-```
-
-**Deliverables:**
-- Working `vp` binary
-- Can read/write templates to JSON files
-- Can list system processes using `/proc` (Linux) or `ps` command
-- Foundation for process management
-
-**Code Example (main.go):**
-```go
-package main
-
-import (
-    "flag"
-    "fmt"
-    "os"
-)
-
-func main() {
-    if len(os.Args) < 2 {
-        fmt.Println("Usage: vp <command>")
-        os.Exit(1)
-    }
-
-    switch os.Args[1] {
-    case "list":
-        listProcesses()
-    case "template":
-        handleTemplateCommands()
-    default:
-        fmt.Printf("Unknown command: %s\n", os.Args[1])
-        os.Exit(1)
-    }
-}
-```
-
-### Phase 2: Instance Management (Day 2)
-
-**Goal**: Start and stop processes from templates with variable interpolation.
-
-**Tasks:**
-1. Implement ProcessInstance struct
-2. Create variable interpolation engine (${var} replacement)
-3. Implement `vp start <template> <name>` - start process from template
-4. Implement `vp stop <name>` - stop running instance
-5. Implement `vp ps` - list managed instances
-6. Store instance state in `instances.json`
-7. Track PIDs and basic status (running/stopped)
-
-**Data Structures:**
-```go
 type ProcessInstance struct {
-    ID         string            `json:"id"`
-    Name       string            `json:"name"`
-    Status     string            `json:"status"` // stopped, starting, running, stopping, error
-    PID        int               `json:"pid,omitempty"`
-    Ports      []int             `json:"ports,omitempty"`
-    TemplateID string            `json:"template_id"`
-    Vars       map[string]string `json:"vars"`
-    Command    string            `json:"command"`
-    Error      string            `json:"error,omitempty"`
-    CreatedAt  time.Time         `json:"created_at"`
-    StartedAt  *time.Time        `json:"started_at,omitempty"`
-    StoppedAt  *time.Time        `json:"stopped_at,omitempty"`
+    ID           string            `json:"id"`
+    Name         string            `json:"name"`
+    Status       string            `json:"status"` // stopped, starting, running, stopping, error
+    PID          int               `json:"pid,omitempty"`
+    Ports        []int             `json:"ports,omitempty"`
+    TemplateID   string            `json:"template_id,omitempty"`
+    Vars         map[string]string `json:"vars,omitempty"`
+    Command      string            `json:"command"`
+    Error        string            `json:"error,omitempty"`
+    CPUUsage     float64           `json:"cpu_usage,omitempty"`
+    MemoryUsage  uint64            `json:"memory_usage,omitempty"`
+    Uptime       int64             `json:"uptime,omitempty"`
+    CreatedAt    time.Time         `json:"created_at,omitempty"`
+    StartedAt    *time.Time        `json:"started_at,omitempty"`
+    StoppedAt    *time.Time        `json:"stopped_at,omitempty"`
 }
-```
 
-**CLI Interface:**
-```bash
-vp start node-express api-server --port=3000 --env=dev
-vp stop api-server
-vp ps                           # List managed instances
-vp ps --all                     # Include stopped instances
-vp status api-server            # Detailed instance status
+type Resources struct {
+    // Generic resource map: resource_name -> []values
+    // Examples: "port" -> ["3000", "8080"], "gpu" -> ["0"], "db_conn" -> ["mydb"]
+    Allocations map[string][]string `json:"allocations,omitempty"`
+}
 ```
 
 **Key Functions:**
 ```go
-// Interpolate variables in command template
-func InterpolateCommand(template string, vars map[string]string) string {
-    result := template
-    for key, value := range vars {
-        result = strings.ReplaceAll(result, "${"+key+"}", value)
-    }
-    return result
-}
+// Read all processes from /proc
+func ListSystemProcesses() ([]ProcessInstance, error) {
+    var processes []ProcessInstance
 
-// Start process using os/exec
-func StartProcess(cmd string) (*exec.Cmd, error) {
-    parts := strings.Fields(cmd)
-    process := exec.Command(parts[0], parts[1:]...)
-    process.Stdout = os.Stdout
-    process.Stderr = os.Stderr
-    err := process.Start()
-    return process, err
-}
-```
-
-**Deliverables:**
-- Can start processes from templates
-- Variable interpolation working
-- Process tracking with PIDs
-- Persistent instance state
-- Basic error handling
-
-### Phase 3: Resource Management (Day 3)
-
-**Goal**: Port allocation, conflict detection, and auto-increment counters.
-
-**Tasks:**
-1. Implement port conflict detection
-2. Add auto-increment port counters (%tcpport, %vnc, %serial)
-3. Implement `vp ports` - list port allocations
-4. Add resource validation before starting instances
-5. Track file resource usage
-6. Implement `vp resources` - show all resource allocations
-7. Store resource state in `resources.json`
-
-**Data Structures:**
-```go
-type ResourceAllocation struct {
-    Type       string    `json:"type"` // port, file
-    Value      string    `json:"value"`
-    InstanceID string    `json:"instance_id"`
-    Instance   string    `json:"instance_name"`
-    AllocatedAt time.Time `json:"allocated_at"`
-}
-
-type PortCounter struct {
-    Name    string `json:"name"`    // tcpport, vnc, serial
-    Current int    `json:"current"`
-    Min     int    `json:"min"`
-    Max     int    `json:"max"`
-}
-```
-
-**CLI Interface:**
-```bash
-vp ports                        # List port allocations
-vp ports --available            # Show available ports in ranges
-vp resources                    # Show all resources (ports + files)
-vp check-conflicts <instance>   # Check for resource conflicts
-```
-
-**Key Functions:**
-```go
-// Check if port is available on system
-func IsPortAvailable(port int) bool {
-    ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-    if err != nil {
-        return false
-    }
-    ln.Close()
-    return true
-}
-
-// Get next available port from counter
-func GetNextPort(counter *PortCounter, allocations []ResourceAllocation) int {
-    for port := counter.Current; port <= counter.Max; port++ {
-        if IsPortAvailable(port) && !isPortAllocated(port, allocations) {
-            counter.Current = port + 1
-            return port
-        }
-    }
-    return -1
-}
-
-// Detect resource conflicts before starting
-func DetectConflicts(instance *ProcessInstance, allInstances []ProcessInstance) []string {
-    var conflicts []string
-    for _, port := range instance.Ports {
-        for _, other := range allInstances {
-            if other.ID != instance.ID && other.Status == "running" {
-                for _, otherPort := range other.Ports {
-                    if port == otherPort {
-                        conflicts = append(conflicts,
-                            fmt.Sprintf("Port %d in use by %s", port, other.Name))
-                    }
-                }
-            }
-        }
-    }
-    return conflicts
-}
-```
-
-**Enhanced Variable Interpolation:**
-```go
-func InterpolateWithCounters(template string, vars map[string]string,
-                             counters map[string]*PortCounter,
-                             allocations []ResourceAllocation) string {
-    result := template
-
-    // Standard variables: ${var}
-    for key, value := range vars {
-        result = strings.ReplaceAll(result, "${"+key+"}", value)
-    }
-
-    // Auto-increment counters: %tcpport
-    for name, counter := range counters {
-        if strings.Contains(result, "%"+name) {
-            port := GetNextPort(counter, allocations)
-            result = strings.ReplaceAll(result, "%"+name, fmt.Sprintf("%d", port))
-        }
-    }
-
-    return result
-}
-```
-
-**Deliverables:**
-- Port conflict detection working
-- Auto-increment port allocation
-- Resource tracking
-- Pre-flight validation before starting
-- Clear conflict error messages
-
-### Phase 4: Process Monitoring (Day 4)
-
-**Goal**: Real-time CPU/memory monitoring and uptime tracking.
-
-**Tasks:**
-1. Implement process metrics collection using `/proc` or `ps`
-2. Add goroutine for continuous metric updates
-3. Implement `vp stats <name>` - show process metrics
-4. Add uptime calculation
-5. Store metric history (last 100 samples)
-6. Add process health checking (detect crashes)
-7. Auto-update instance status on process exit
-
-**Data Structures:**
-```go
-type ProcessMetrics struct {
-    CPU    float64   `json:"cpu_usage"`    // Percentage
-    Memory uint64    `json:"memory_usage"` // Bytes
-    Uptime int64     `json:"uptime"`       // Seconds
-    Time   time.Time `json:"timestamp"`
-}
-
-type InstanceWithMetrics struct {
-    *ProcessInstance
-    CurrentMetrics  *ProcessMetrics   `json:"current_metrics,omitempty"`
-    MetricsHistory  []ProcessMetrics  `json:"metrics_history,omitempty"`
-}
-```
-
-**CLI Interface:**
-```bash
-vp stats api-server             # Show current metrics
-vp stats api-server --watch     # Continuously update (like top)
-vp stats --all                  # Show metrics for all running instances
-```
-
-**Key Functions:**
-```go
-// Read process stats from /proc/[pid]/stat (Linux)
-func GetProcessStats(pid int) (*ProcessMetrics, error) {
-    statPath := fmt.Sprintf("/proc/%d/stat", pid)
-    data, err := os.ReadFile(statPath)
+    entries, err := os.ReadDir("/proc")
     if err != nil {
         return nil, err
     }
 
-    fields := strings.Fields(string(data))
-    // Parse CPU time (fields 13, 14)
-    // Parse memory (field 23)
-    // Calculate percentages
+    for _, entry := range entries {
+        if !entry.IsDir() {
+            continue
+        }
 
-    return &ProcessMetrics{
-        CPU:    cpuPercent,
-        Memory: memoryBytes,
-        Uptime: uptime,
-        Time:   time.Now(),
-    }, nil
-}
+        pid, err := strconv.Atoi(entry.Name())
+        if err != nil {
+            continue
+        }
 
-// Background monitoring goroutine
-func MonitorProcess(instance *ProcessInstance, stopChan chan bool) {
-    ticker := time.NewTicker(5 * time.Second)
-    defer ticker.Stop()
-
-    for {
-        select {
-        case <-ticker.C:
-            if !isProcessRunning(instance.PID) {
-                instance.Status = "stopped"
-                instance.StoppedAt = timePtr(time.Now())
-                return
-            }
-
-            metrics, err := GetProcessStats(instance.PID)
-            if err == nil {
-                instance.CurrentMetrics = metrics
-                // Store in history (keep last 100)
-            }
-        case <-stopChan:
-            return
+        proc, err := readProcessInfo(pid)
+        if err == nil {
+            processes = append(processes, proc)
         }
     }
+
+    return processes, nil
+}
+
+// Read process info from /proc/[pid]/
+func readProcessInfo(pid int) (ProcessInstance, error) {
+    // Read /proc/[pid]/cmdline for command
+    // Read /proc/[pid]/stat for CPU, memory, uptime
+    // Parse and return ProcessInstance
 }
 ```
 
 **Deliverables:**
-- Real-time CPU/memory monitoring
-- Uptime tracking
-- Metrics history
-- Auto-detection of crashed processes
-- Watch mode for live updates
+- Core data structures defined
+- Process discovery working on Linux
+- Can read all running system processes
+- Process metrics (CPU, memory) parsed correctly
+- JSON serialization working
+- Unit tests passing
 
-### Phase 5: Web UI - Embedded Server (Day 5)
+### Phase 2: Web UI & API Server
 
-**Goal**: Basic web interface served by Go binary.
+**Goal**: Create web interface that displays current system processes.
 
 **Tasks:**
 1. Create HTTP server using `net/http` stdlib
-2. Implement REST API endpoints
+2. Implement REST API endpoint: `GET /api/processes`
 3. Create single-page HTML dashboard
-4. Add vanilla JavaScript for API calls
+4. Add vanilla JavaScript to fetch and display process list
 5. Embed web files using `embed` package
-6. Implement `vp serve` - start web UI server
-7. Add basic CSS for styling
+6. Add auto-refresh every 5 seconds
+7. Basic CSS styling for process table
 
 **API Endpoints:**
 ```go
-// API routes
-GET  /api/instances              # List all instances
-GET  /api/instances/:id          # Get instance details
-POST /api/instances              # Create new instance
-POST /api/instances/:id/start    # Start instance
-POST /api/instances/:id/stop     # Stop instance
-DELETE /api/instances/:id        # Delete instance
-
-GET  /api/templates              # List templates
-GET  /api/templates/:id          # Get template
-POST /api/templates              # Create template
-
-GET  /api/resources              # List resource allocations
-GET  /api/ports                  # List port allocations
-
-GET  /api/logs                   # Get event logs
+GET  /api/processes             # List all system processes
+GET  /api/processes/:pid        # Get single process details
 ```
 
 **Server Implementation:**
@@ -484,29 +234,26 @@ func StartServer(addr string) error {
     http.Handle("/", http.FileServer(http.FS(webContent)))
 
     // API routes
-    http.HandleFunc("/api/instances", handleInstances)
-    http.HandleFunc("/api/templates", handleTemplates)
-    http.HandleFunc("/api/resources", handleResources)
+    http.HandleFunc("/api/processes", handleProcesses)
 
     fmt.Printf("Server starting on http://%s\n", addr)
     return http.ListenAndServe(addr, nil)
 }
 
-func handleInstances(w http.ResponseWriter, r *http.Request) {
-    switch r.Method {
-    case "GET":
-        instances, _ := store.ListInstances()
-        json.NewEncoder(w).Encode(instances)
-    case "POST":
-        var req CreateInstanceRequest
-        json.NewDecoder(r.Body).Decode(&req)
-        instance, err := createInstance(req)
-        if err != nil {
-            http.Error(w, err.Error(), http.StatusBadRequest)
-            return
-        }
-        json.NewEncoder(w).Encode(instance)
+func handleProcesses(w http.ResponseWriter, r *http.Request) {
+    if r.Method != "GET" {
+        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+        return
     }
+
+    processes, err := process.ListSystemProcesses()
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(processes)
 }
 ```
 
@@ -518,59 +265,82 @@ func handleInstances(w http.ResponseWriter, r *http.Request) {
     <title>Vibeprocess Manager</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: system-ui; padding: 20px; }
-        .tabs { display: flex; gap: 10px; margin-bottom: 20px; }
-        .tab { padding: 10px 20px; cursor: pointer; border: 1px solid #ccc; }
-        .tab.active { background: #007bff; color: white; }
-        .instance { border: 1px solid #ddd; padding: 15px; margin: 10px 0; }
+        body { font-family: system-ui; padding: 20px; background: #f5f5f5; }
+        h1 { margin-bottom: 20px; }
+        table { width: 100%; background: white; border-collapse: collapse; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background: #333; color: white; font-weight: 600; }
+        tr:hover { background: #f9f9f9; }
         .status { display: inline-block; padding: 4px 8px; border-radius: 3px; }
         .status.running { background: #28a745; color: white; }
-        .status.stopped { background: #6c757d; color: white; }
-        button { padding: 8px 16px; margin: 4px; cursor: pointer; }
+        .metrics { font-family: monospace; font-size: 0.9em; }
     </style>
 </head>
 <body>
     <h1>Vibeprocess Manager</h1>
+    <p>Showing <span id="count">0</span> running processes</p>
 
-    <div class="tabs">
-        <div class="tab active" onclick="showTab('instances')">Instances</div>
-        <div class="tab" onclick="showTab('templates')">Templates</div>
-        <div class="tab" onclick="showTab('resources')">Resources</div>
-    </div>
-
-    <div id="instances-tab">
-        <button onclick="createInstance()">+ New Instance</button>
-        <div id="instances-list"></div>
-    </div>
+    <table id="processes-table">
+        <thead>
+            <tr>
+                <th>PID</th>
+                <th>Name</th>
+                <th>Status</th>
+                <th>CPU %</th>
+                <th>Memory</th>
+                <th>Uptime</th>
+                <th>Command</th>
+            </tr>
+        </thead>
+        <tbody id="processes-list"></tbody>
+    </table>
 
     <script>
-        async function loadInstances() {
-            const res = await fetch('/api/instances');
-            const instances = await res.json();
-            const html = instances.map(i => `
-                <div class="instance">
-                    <h3>${i.name}</h3>
-                    <span class="status ${i.status}">${i.status}</span>
-                    <p>PID: ${i.pid || 'N/A'} | Ports: ${i.ports.join(', ')}</p>
-                    <button onclick="startInstance('${i.id}')">Start</button>
-                    <button onclick="stopInstance('${i.id}')">Stop</button>
-                </div>
-            `).join('');
-            document.getElementById('instances-list').innerHTML = html;
+        function formatBytes(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+            return (bytes/(1024*1024)).toFixed(1) + ' MB';
         }
 
-        async function startInstance(id) {
-            await fetch(`/api/instances/${id}/start`, { method: 'POST' });
-            loadInstances();
+        function formatUptime(seconds) {
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = seconds % 60;
+            return `${h}h ${m}m ${s}s`;
         }
 
-        async function stopInstance(id) {
-            await fetch(`/api/instances/${id}/stop`, { method: 'POST' });
-            loadInstances();
+        async function loadProcesses() {
+            try {
+                const res = await fetch('/api/processes');
+                const processes = await res.json();
+
+                document.getElementById('count').textContent = processes.length;
+
+                const html = processes.map(p => `
+                    <tr>
+                        <td>${p.pid}</td>
+                        <td>${p.name}</td>
+                        <td><span class="status running">running</span></td>
+                        <td class="metrics">${(p.cpu_usage || 0).toFixed(1)}</td>
+                        <td class="metrics">${formatBytes(p.memory_usage || 0)}</td>
+                        <td class="metrics">${formatUptime(p.uptime || 0)}</td>
+                        <td style="max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                            ${p.command}
+                        </td>
+                    </tr>
+                `).join('');
+
+                document.getElementById('processes-list').innerHTML = html;
+            } catch (err) {
+                console.error('Failed to load processes:', err);
+            }
         }
 
-        loadInstances();
-        setInterval(loadInstances, 5000); // Auto-refresh
+        // Load initially
+        loadProcesses();
+
+        // Auto-refresh every 5 seconds
+        setInterval(loadProcesses, 5000);
     </script>
 </body>
 </html>
@@ -580,18 +350,358 @@ func handleInstances(w http.ResponseWriter, r *http.Request) {
 ```bash
 vp serve                        # Start web UI on :8080
 vp serve --port 3000            # Start on custom port
-vp serve --open                 # Start and open browser
 ```
 
 **Deliverables:**
-- Working web UI accessible via browser
-- REST API for all operations
-- Embedded files (single binary deployment)
-- Auto-refreshing instance list
-- Start/stop buttons functional
-- No external JavaScript dependencies
+- Working HTTP server
+- REST API returning process list as JSON
+- Web UI displaying all running processes
+- Auto-refresh working
+- CPU, memory, uptime displayed correctly
+- Single binary with embedded web files
+- Clean, readable table interface
 
-### Phase 6: Connection Commands (Day 6)
+### Phase 3: Template Management
+
+**Goal**: Create and manage process templates with web UI.
+
+**Tasks:**
+1. Implement template storage (JSON files in `~/.vibeprocess/templates/`)
+2. Add template CRUD API endpoints
+3. Add "Templates" tab to web UI
+4. Create template editor form
+5. Load default templates (node-express, postgresql, redis)
+6. Add template validation
+7. Display template details and variables
+
+**API Endpoints:**
+```go
+GET    /api/templates          # List all templates
+GET    /api/templates/:id      # Get template by ID
+POST   /api/templates          # Create new template
+PUT    /api/templates/:id      # Update template
+DELETE /api/templates/:id      # Delete template
+```
+
+**Storage Implementation:**
+```go
+type TemplateStore struct {
+    baseDir string
+}
+
+func NewTemplateStore() *TemplateStore {
+    homeDir, _ := os.UserHomeDir()
+    baseDir := filepath.Join(homeDir, ".vibeprocess", "templates")
+    os.MkdirAll(baseDir, 0755)
+    return &TemplateStore{baseDir: baseDir}
+}
+
+func (s *TemplateStore) List() ([]Template, error) {
+    var templates []Template
+    files, err := os.ReadDir(s.baseDir)
+    if err != nil {
+        return nil, err
+    }
+
+    for _, file := range files {
+        if filepath.Ext(file.Name()) == ".json" {
+            data, _ := os.ReadFile(filepath.Join(s.baseDir, file.Name()))
+            var tmpl Template
+            json.Unmarshal(data, &tmpl)
+            templates = append(templates, tmpl)
+        }
+    }
+    return templates, nil
+}
+
+func (s *TemplateStore) Save(tmpl Template) error {
+    data, err := json.MarshalIndent(tmpl, "", "  ")
+    if err != nil {
+        return err
+    }
+    path := filepath.Join(s.baseDir, tmpl.ID+".json")
+    return os.WriteFile(path, data, 0644)
+}
+```
+
+**Web UI Enhancement (Templates Tab):**
+```javascript
+async function loadTemplates() {
+    const res = await fetch('/api/templates');
+    const templates = await res.json();
+
+    const html = templates.map(t => `
+        <div class="template-card">
+            <h3>${t.label}</h3>
+            <p><strong>ID:</strong> ${t.id}</p>
+            <p><strong>Command:</strong> <code>${t.command_template}</code></p>
+            <p><strong>Variables:</strong> ${Object.keys(t.defaults || {}).join(', ')}</p>
+            <button onclick="editTemplate('${t.id}')">Edit</button>
+            <button onclick="deleteTemplate('${t.id}')">Delete</button>
+            <button onclick="createInstance('${t.id}')">Create Instance</button>
+        </div>
+    `).join('');
+
+    document.getElementById('templates-list').innerHTML = html;
+}
+```
+
+**Default Templates:**
+Create 3 default template files on first run:
+- `node-express.json` - Node.js web server
+- `postgresql.json` - PostgreSQL database
+- `redis.json` - Redis cache server
+
+**Deliverables:**
+- Template CRUD operations working
+- Templates persisted to JSON files
+- Web UI templates tab functional
+- Template editor form working
+- Default templates loaded
+- Template validation implemented
+
+### Phase 4: Instance Management
+
+**Goal**: Start and stop processes from templates with variable interpolation.
+
+**Tasks:**
+1. Implement variable interpolation engine (`${var}` replacement)
+2. Add instance storage (`~/.vibeprocess/instances.json`)
+3. Implement process spawning using `os/exec`
+4. Add API endpoints for instance lifecycle
+5. Add "Create Instance" modal in web UI
+6. Implement start/stop functionality
+7. Track instance state and PIDs
+
+**API Endpoints:**
+```go
+GET    /api/instances              # List managed instances
+GET    /api/instances/:id          # Get instance details
+POST   /api/instances              # Create new instance
+POST   /api/instances/:id/start    # Start instance
+POST   /api/instances/:id/stop     # Stop instance
+DELETE /api/instances/:id          # Delete instance
+```
+
+**Key Functions:**
+```go
+// Interpolate variables in command template
+func InterpolateCommand(template string, vars map[string]string) string {
+    result := template
+    for key, value := range vars {
+        result = strings.ReplaceAll(result, "${"+key+"}", value)
+    }
+    return result
+}
+
+// Start process from template
+func CreateAndStartInstance(tmpl Template, name string, vars map[string]string) (*ProcessInstance, error) {
+    // Merge defaults with provided vars
+    finalVars := make(map[string]string)
+    for k, v := range tmpl.Defaults {
+        finalVars[k] = v
+    }
+    for k, v := range vars {
+        finalVars[k] = v
+    }
+
+    // Interpolate command
+    command := InterpolateCommand(tmpl.CommandTemplate, finalVars)
+
+    // Create instance
+    instance := &ProcessInstance{
+        ID:         generateID(),
+        Name:       name,
+        Status:     "stopped",
+        TemplateID: tmpl.ID,
+        Vars:       finalVars,
+        Command:    command,
+        CreatedAt:  time.Now(),
+    }
+
+    // Start the process
+    err := StartInstance(instance)
+    return instance, err
+}
+
+// Start instance process
+func StartInstance(instance *ProcessInstance) error {
+    instance.Status = "starting"
+
+    // Parse command into parts
+    parts := strings.Fields(instance.Command)
+    cmd := exec.Command(parts[0], parts[1:]...)
+
+    // Start process
+    err := cmd.Start()
+    if err != nil {
+        instance.Status = "error"
+        instance.Error = err.Error()
+        return err
+    }
+
+    // Update instance
+    instance.PID = cmd.Process.Pid
+    instance.Status = "running"
+    now := time.Now()
+    instance.StartedAt = &now
+
+    return nil
+}
+
+// Stop instance process
+func StopInstance(instance *ProcessInstance) error {
+    if instance.PID == 0 {
+        return fmt.Errorf("instance not running")
+    }
+
+    instance.Status = "stopping"
+
+    // Find and kill process
+    process, err := os.FindProcess(instance.PID)
+    if err != nil {
+        return err
+    }
+
+    err = process.Signal(os.Interrupt)
+    if err != nil {
+        // Force kill if graceful shutdown fails
+        process.Kill()
+    }
+
+    instance.Status = "stopped"
+    now := time.Now()
+    instance.StoppedAt = &now
+    instance.PID = 0
+
+    return nil
+}
+```
+
+**Web UI Enhancement (Instances Tab):**
+```javascript
+async function createInstanceModal(templateId) {
+    const template = await fetch(`/api/templates/${templateId}`).then(r => r.json());
+
+    // Show modal with form for variables
+    const form = Object.keys(template.defaults || {}).map(varName => `
+        <label>${varName}: <input name="${varName}" value="${template.defaults[varName]}"></label>
+    `).join('');
+
+    // Show modal, collect input, then:
+    const vars = getFormData();
+    const instance = await fetch('/api/instances', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            template_id: templateId,
+            name: vars.name,
+            vars: vars
+        })
+    }).then(r => r.json());
+
+    // Auto-start instance
+    await fetch(`/api/instances/${instance.id}/start`, {method: 'POST'});
+    loadInstances();
+}
+```
+
+**Deliverables:**
+- Variable interpolation working
+- Process spawning functional
+- Start/stop operations working
+- Instance state persisted
+- Web UI can create instances from templates
+- Process lifecycle managed correctly
+
+### Phase 5: Resource Management
+
+**Goal**: Port allocation, conflict detection, and auto-increment counters.
+
+**Tasks:**
+1. Implement port conflict detection
+2. Add auto-increment port counters (%tcpport, %vnc, %serial)
+3. Track port allocations for instances
+4. Add resource validation before starting instances
+5. Implement resource conflict prevention
+6. Add "Resources" tab to web UI
+7. Show port allocations and availability
+
+**Key Functions:**
+```go
+// Check if port is available
+func IsPortAvailable(port int) bool {
+    ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+    if err != nil {
+        return false
+    }
+    ln.Close()
+    return true
+}
+
+// Get next available port from counter
+func GetNextPort(counterName string, min, max int) (int, error) {
+    // Read current counter from ~/.vibeprocess/counters/{counterName}
+    current := readCounter(counterName, min)
+
+    for port := current; port <= max; port++ {
+        if IsPortAvailable(port) {
+            writeCounter(counterName, port+1)
+            return port, nil
+        }
+    }
+    return -1, fmt.Errorf("no available ports in range %d-%d", min, max)
+}
+
+// Detect resource conflicts before starting
+func CheckPortConflict(port int, instances []ProcessInstance) error {
+    for _, inst := range instances {
+        if inst.Status == "running" {
+            for _, p := range inst.Ports {
+                if p == port {
+                    return fmt.Errorf("port %d already in use by %s", port, inst.Name)
+                }
+            }
+        }
+    }
+    return nil
+}
+
+// Auto-increment variable interpolation
+func InterpolateWithCounters(template string, vars map[string]string) string {
+    result := template
+
+    // Standard variables: ${var}
+    for key, value := range vars {
+        result = strings.ReplaceAll(result, "${"+key+"}", value)
+    }
+
+    // Auto-increment counters: %tcpport, %vnc, %serialport
+    if strings.Contains(result, "%tcpport") {
+        port, _ := GetNextPort("tcpport", 3000, 9999)
+        result = strings.ReplaceAll(result, "%tcpport", fmt.Sprintf("%d", port))
+    }
+    if strings.Contains(result, "%vnc") {
+        port, _ := GetNextPort("vnc", 5900, 5999)
+        result = strings.ReplaceAll(result, "%vnc", fmt.Sprintf("%d", port))
+    }
+    if strings.Contains(result, "%serialport") {
+        port, _ := GetNextPort("serialport", 9600, 9699)
+        result = strings.ReplaceAll(result, "%serialport", fmt.Sprintf("%d", port))
+    }
+
+    return result
+}
+```
+
+**Deliverables:**
+- Port conflict detection working
+- Auto-increment port counters (%tcpport, %vnc, %serialport)
+- Resource tracking and validation
+- Pre-flight checks before starting
+- Resources tab in web UI
+
+### Phase 6: Connection Commands
 
 **Goal**: Execute connection commands from UI and CLI.
 
@@ -657,7 +767,7 @@ async function executeConnection(instanceId, connType) {
 - Support for browser, curl, ssh, vnc, etc.
 - Connection history tracking
 
-### Phase 7: Logging & History (Day 7)
+### Phase 7: Logging & History
 
 **Goal**: Event logging and history visualization.
 
@@ -727,21 +837,84 @@ LogEvent("error", inst.ID, inst.Name, "Failed to start: port conflict")
 
 ## 4. Data Persistence
 
+**Philosophy**:
+- **Configuration = Simple Text Files** (easily editable, script-friendly, convention over config)
+- **State/History = JSON** (structured data, makes code leaner)
+
 ### File Structure
 ```
 ~/.vibeprocess/
-├── config.json              # Global configuration
-├── templates/               # Template library
-│   ├── node-express.json
-│   ├── postgresql.json
-│   └── custom-app.json
-├── instances.json           # Active and stopped instances
-├── resources.json           # Resource allocations
-├── counters.json            # Port counters state
-└── logs.json                # Event logs
+├── templates/               # Template library (simple text format)
+│   ├── node-express.tpl
+│   ├── postgresql.tpl
+│   └── custom-app.tpl
+├── counters/                # Port counter values (plain text files)
+│   ├── tcpport              # Contains just the number: "3001"
+│   ├── vnc                  # Contains just the number: "5901"
+│   └── serialport           # Contains just the number: "9601"
+├── instances.json           # Active and stopped instances (JSON state)
+├── logs.json                # Event logs (JSON history)
+└── config                   # Global config (KEY=VALUE format)
 ```
 
-### Example Files
+### Template Format (Simple Text)
+
+**~/.vibeprocess/templates/node-express.tpl:**
+```
+id: node-express
+label: Node.js Express Server
+command: node server.js --port ${port} --env ${env}
+
+[defaults]
+port = %tcpport
+env = development
+
+[variables]
+port
+env
+
+[resources]
+port = ${port}
+file = server.js
+file = package.json
+
+[exposes]
+http = :${port}
+
+[connections]
+curl = curl -I http://localhost:${port}
+browser = open http://localhost:${port}
+```
+
+**Simple parsing rules:**
+- Lines with `key: value` or `key = value` are properties
+- `[section]` headers denote sections
+- Multiple lines with same key create a list (e.g., multiple `file =` lines)
+- Blank lines ignored
+- `#` for comments
+
+**Generic Resources:**
+- Resources are not opinionated - any resource type can be defined
+- Format: `resource_type = value`
+- Examples: `port = 3000`, `file = data.db`, `gpu = 0`, `db_connection = mydb`
+- Multiple values: repeat the key on new lines
+- This allows extensibility for any resource type you need to track
+
+### Counter Files (Plain Text)
+
+**~/.vibeprocess/counters/tcpport:**
+```
+3001
+```
+
+**~/.vibeprocess/counters/vnc:**
+```
+5901
+```
+
+Simple integer, one per file. Easy to read/write with scripts.
+
+### State Files (JSON for Lean Code)
 
 **instances.json:**
 ```json
@@ -761,13 +934,15 @@ LogEvent("error", inst.ID, inst.Name, "Failed to start: port conflict")
 ]
 ```
 
-**counters.json:**
-```json
-{
-  "tcpport": {"name": "tcpport", "current": 3000, "min": 3000, "max": 9999},
-  "vnc": {"name": "vnc", "current": 5900, "min": 5900, "max": 5999},
-  "serialport": {"name": "serialport", "current": 9600, "min": 9600, "max": 9699}
-}
+### Config File (KEY=VALUE)
+
+**~/.vibeprocess/config:**
+```
+WEB_PORT=8080
+AUTO_START=false
+LOG_LEVEL=info
+DEFAULT_PORT_MIN=3000
+DEFAULT_PORT_MAX=9999
 ```
 
 ---
@@ -946,27 +1121,23 @@ When absolutely needed, consider:
 
 ---
 
-## 10. Timeline
+## 10. Implementation Sequence
 
-**Week 1: Core Functionality**
-- Day 1: Minimal CLI, templates
-- Day 2: Instance management
-- Day 3: Resource management
-- Day 4: Process monitoring
-- Day 5: Web UI
-- Day 6: Connection commands
-- Day 7: Logging, polish
+**Core Functionality (Sequential Phases)**
+Execute these phases in order. Each phase builds on the previous:
 
-**Week 2: Production Ready**
-- Testing and bug fixes
-- Documentation
-- Example templates
-- Installation scripts
+1. Data models & process reading from /proc
+2. Web UI & API server showing current processes
+3. Template management (simple text format)
+4. Instance management (start/stop from templates)
+5. Resource management (generic resources, conflicts, counters)
+6. Connection commands (click to connect)
+7. Logging, history, polish
 
-**Week 3+: Enhancements**
-- Advanced features
-- UI improvements
-- Community feedback
+**Post-Core Enhancement Phases** (Optional, as needed)
+- Phase 8: Advanced features (health checks, auto-restart, process groups)
+- Phase 9: UI enhancements (better styling, charts, dark mode)
+- Phase 10: Distribution (packaging, installation scripts, docs)
 
 ---
 
@@ -1007,28 +1178,37 @@ go build -o vp main.go
 
 ### First Template
 ```bash
-# Create node-express template
-cat > templates/default/node-express.json << 'EOF'
-{
-  "id": "node-express",
-  "label": "Node.js Express Server",
-  "command_template": "node server.js --port ${port} --env ${env}",
-  "defaults": {"port": "%tcpport", "env": "development"},
-  "variables": ["port", "env"],
-  "resources": {
-    "ports": ["${port}"],
-    "files": ["server.js", "package.json"]
-  },
-  "exposes": {"http": ":${port}"},
-  "connections": {
-    "curl": "curl -I http://localhost:${port}",
-    "browser": "open http://localhost:${port}"
-  }
-}
+# Create node-express template (simple text format)
+mkdir -p ~/.vibeprocess/templates
+cat > ~/.vibeprocess/templates/node-express.tpl << 'EOF'
+id: node-express
+label: Node.js Express Server
+command: node server.js --port ${port} --env ${env}
+
+[defaults]
+port = %tcpport
+env = development
+
+[variables]
+port
+env
+
+[resources]
+port = ${port}
+file = server.js
+file = package.json
+
+[exposes]
+http = :${port}
+
+[connections]
+curl = curl -I http://localhost:${port}
+browser = open http://localhost:${port}
 EOF
 
-./vp template add templates/default/node-express.json
-./vp template list
+# Start the web UI
+./vp serve
+# Open browser to http://localhost:8080
 ```
 
 ---
