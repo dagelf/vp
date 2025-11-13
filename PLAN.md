@@ -1,38 +1,29 @@
 # Vibeprocess Manager - Implementation Plan
 
-## Phase 1: Frontend with Mock Data
+## Minimal Go Implementation with Progressive Enhancement
 
-This document outlines the implementation plan for Phase 1 of Vibeprocess Manager, focusing on building a functional frontend interface with mock data.
+This document outlines the implementation plan for Vibeprocess Manager, starting with a minimal Go program that can expand to include all features from the PRD. The approach prioritizes simplicity, zero external dependencies initially, and incremental feature addition.
 
 ---
 
-## 1. Technology Stack Decisions
+## 1. Architecture Philosophy
 
-### Core Framework
-- **Next.js 15+ (App Router)**: Modern React framework with built-in routing
-- **React 19+**: Latest React features with improved performance
-- **TypeScript**: Type safety for data models and components
+### Core Principles
+1. **Start Minimal**: Begin with a working CLI that does one thing well
+2. **Progressive Enhancement**: Add features incrementally, each building on the last
+3. **Self-Contained**: Single binary with no external dependencies
+4. **File-Based Storage**: JSON files for simplicity and inspectability
+5. **Built-in Web UI**: Embedded HTML/CSS/JS served by Go's stdlib
+6. **Unix Philosophy**: Each component does one thing well
 
-### Styling
-- **Tailwind CSS**: Utility-first CSS for rapid UI development
-- **shadcn/ui**: Pre-built, accessible component library
-- **Lucide React**: Icon library for consistent iconography
-
-### State Management
-- **React Context + Hooks**: Lightweight state management for Phase 1
-- **localStorage**: Client-side persistence for templates and instances
-
-### Development Tools
-- **ESLint**: Code quality and consistency
-- **Prettier**: Code formatting
-- **TypeScript**: Type checking
-
-### Why This Stack?
-1. **Minimal Dependencies**: Core request from PRD
-2. **Simple Architecture**: Easy to understand and maintain
-3. **Fast Development**: Pre-built components accelerate UI creation
-4. **Type Safety**: TypeScript prevents runtime errors
-5. **Future-Ready**: Easy migration to backend in Phase 2
+### Why Go?
+- **Single Binary**: Easy deployment and distribution
+- **Excellent stdlib**: HTTP server, JSON, process management built-in
+- **System Integration**: Native OS process management
+- **Performance**: Minimal overhead for process monitoring
+- **Concurrency**: Goroutines for real-time metrics collection
+- **Cross-Platform**: Build for Linux, macOS, Windows from same codebase
+- **No Runtime Dependencies**: Unlike Node.js/Python
 
 ---
 
@@ -40,676 +31,1089 @@ This document outlines the implementation plan for Phase 1 of Vibeprocess Manage
 
 ```
 vp/
-├── app/                          # Next.js app directory
-│   ├── layout.tsx               # Root layout with theme provider
-│   ├── page.tsx                 # Main dashboard page
-│   └── globals.css              # Global styles and Tailwind imports
-├── components/
-│   ├── ui/                      # shadcn/ui base components
-│   │   ├── button.tsx
-│   │   ├── card.tsx
-│   │   ├── dialog.tsx
-│   │   ├── tabs.tsx
-│   │   ├── badge.tsx
-│   │   └── ...
-│   ├── dashboard/               # Main dashboard components
-│   │   ├── Dashboard.tsx        # Main container component
-│   │   ├── InstancesTab.tsx     # Process instances view
-│   │   ├── TemplatesTab.tsx     # Templates management
-│   │   ├── ResourcesTab.tsx     # Resource allocation view
-│   │   └── LogsTab.tsx          # Logs and history view
-│   ├── instances/               # Instance-related components
-│   │   ├── InstanceCard.tsx     # Single instance display
-│   │   ├── InstanceForm.tsx     # Create/edit instance form
-│   │   ├── InstanceMetrics.tsx  # CPU/memory metrics display
-│   │   └── StatusBadge.tsx      # Status indicator
-│   ├── templates/               # Template-related components
-│   │   ├── TemplateCard.tsx     # Single template display
-│   │   ├── TemplateForm.tsx     # Create/edit template form
-│   │   └── TemplatePreview.tsx  # Template details preview
-│   ├── resources/               # Resource-related components
-│   │   ├── PortAllocationTable.tsx
-│   │   ├── ResourceOverview.tsx
-│   │   └── ConflictIndicator.tsx
-│   └── modals/                  # Modal dialogs
-│       ├── CreateInstanceModal.tsx
-│       ├── CreateTemplateModal.tsx
-│       └── ConnectionModal.tsx
-├── lib/
-│   ├── types.ts                 # TypeScript interfaces
-│   ├── mock-data.ts             # Mock templates and instances
-│   ├── utils.ts                 # Utility functions
-│   ├── resource-manager.ts      # Resource conflict detection
-│   └── variable-interpolation.ts # Template variable handling
-├── contexts/
-│   ├── ProcessContext.tsx       # Process state management
-│   └── ThemeProvider.tsx        # Dark mode support
-├── hooks/
-│   ├── useProcesses.ts          # Process management hooks
-│   ├── useTemplates.ts          # Template management hooks
-│   ├── useResources.ts          # Resource tracking hooks
-│   └── useLocalStorage.ts       # Persistent storage hooks
-├── public/
-│   └── favicon.ico
-├── PRD.md                        # Product requirements (this doc)
-├── PLAN.md                       # Implementation plan
-├── package.json
-├── tsconfig.json
-├── tailwind.config.ts
-├── next.config.js
-└── README.md
+├── main.go                    # Entry point, CLI interface
+├── cmd/
+│   ├── root.go               # Root command setup
+│   ├── list.go               # List instances/templates
+│   ├── start.go              # Start a process instance
+│   ├── stop.go               # Stop a process instance
+│   ├── template.go           # Template management commands
+│   └── serve.go              # Web UI server command
+├── internal/
+│   ├── models/
+│   │   ├── template.go       # Template data structures
+│   │   ├── instance.go       # Process instance structures
+│   │   └── resource.go       # Resource allocation structures
+│   ├── store/
+│   │   ├── store.go          # Storage interface
+│   │   ├── json.go           # JSON file persistence
+│   │   └── memory.go         # In-memory store (for testing)
+│   ├── process/
+│   │   ├── manager.go        # Process lifecycle management
+│   │   ├── monitor.go        # CPU/memory monitoring
+│   │   ├── interpolate.go    # Variable interpolation
+│   │   └── resources.go      # Resource conflict detection
+│   ├── api/
+│   │   ├── server.go         # HTTP server
+│   │   ├── handlers.go       # API endpoints
+│   │   └── middleware.go     # Logging, CORS, etc.
+│   └── ui/
+│       └── embed.go          # Embedded web UI files
+├── web/
+│   ├── index.html            # Main dashboard page
+│   ├── style.css             # Minimal CSS (or inline)
+│   └── app.js                # Vanilla JavaScript (no frameworks)
+├── templates/
+│   ├── default/              # Default template library
+│   │   ├── node-express.json
+│   │   ├── postgresql.json
+│   │   └── redis.json
+│   └── custom/               # User-created templates
+├── data/
+│   ├── instances.json        # Running/stopped instances
+│   ├── resources.json        # Resource allocations
+│   └── logs.json             # Event logs
+├── PRD.md                    # Product requirements
+├── PLAN.md                   # This file
+├── README.md                 # Setup and usage
+├── go.mod                    # Go module file (stdlib only initially)
+├── go.sum
+└── Makefile                  # Build commands
 ```
 
 ---
 
 ## 3. Implementation Phases
 
-### Phase 1.1: Project Setup & Foundation (Day 1)
+### Phase 1: Minimal CLI (Day 1)
+
+**Goal**: Working CLI that can list system processes and manage basic templates.
 
 **Tasks:**
-1. Initialize Next.js project with TypeScript
-2. Install and configure Tailwind CSS
-3. Set up shadcn/ui component library
-4. Create project structure (directories)
-5. Define TypeScript interfaces in `lib/types.ts`
-6. Create mock data in `lib/mock-data.ts`
-7. Set up ESLint and Prettier
+1. Initialize Go module (`go mod init github.com/user/vp`)
+2. Create basic CLI structure using `flag` package (stdlib)
+3. Implement `vp list` - list currently running system processes
+4. Create Template struct with JSON marshaling
+5. Implement `vp template add` - add template from JSON file
+6. Implement `vp template list` - list available templates
+7. File-based storage in `~/.vibeprocess/` directory
+
+**Data Structures:**
+```go
+type Template struct {
+    ID              string            `json:"id"`
+    Label           string            `json:"label"`
+    CommandTemplate string            `json:"command_template"`
+    Defaults        map[string]string `json:"defaults,omitempty"`
+    Variables       []string          `json:"variables,omitempty"`
+    Resources       Resources         `json:"resources,omitempty"`
+    Exposes         map[string]string `json:"exposes,omitempty"`
+    Connections     map[string]string `json:"connections,omitempty"`
+    Notes           string            `json:"notes,omitempty"`
+}
+
+type Resources struct {
+    Ports []string `json:"ports,omitempty"`
+    Files []string `json:"files,omitempty"`
+}
+```
+
+**CLI Interface:**
+```bash
+vp list                          # List all running processes (system-wide)
+vp template add node-express.json  # Add template from file
+vp template list                 # List available templates
+vp template show node-express    # Show template details
+```
 
 **Deliverables:**
-- Working Next.js application scaffold
-- Type-safe data models
-- Mock data for 3-5 templates and instances
-- Development environment configured
+- Working `vp` binary
+- Can read/write templates to JSON files
+- Can list system processes using `/proc` (Linux) or `ps` command
+- Foundation for process management
 
-### Phase 1.2: Core Data Layer (Day 1-2)
+**Code Example (main.go):**
+```go
+package main
+
+import (
+    "flag"
+    "fmt"
+    "os"
+)
+
+func main() {
+    if len(os.Args) < 2 {
+        fmt.Println("Usage: vp <command>")
+        os.Exit(1)
+    }
+
+    switch os.Args[1] {
+    case "list":
+        listProcesses()
+    case "template":
+        handleTemplateCommands()
+    default:
+        fmt.Printf("Unknown command: %s\n", os.Args[1])
+        os.Exit(1)
+    }
+}
+```
+
+### Phase 2: Instance Management (Day 2)
+
+**Goal**: Start and stop processes from templates with variable interpolation.
 
 **Tasks:**
-1. Implement ProcessContext for state management
-2. Create useProcesses hook with CRUD operations
-3. Create useTemplates hook with CRUD operations
-4. Implement localStorage persistence
-5. Build variable interpolation engine
-6. Create resource conflict detection logic
-7. Implement auto-increment port allocation
+1. Implement ProcessInstance struct
+2. Create variable interpolation engine (${var} replacement)
+3. Implement `vp start <template> <name>` - start process from template
+4. Implement `vp stop <name>` - stop running instance
+5. Implement `vp ps` - list managed instances
+6. Store instance state in `instances.json`
+7. Track PIDs and basic status (running/stopped)
+
+**Data Structures:**
+```go
+type ProcessInstance struct {
+    ID         string            `json:"id"`
+    Name       string            `json:"name"`
+    Status     string            `json:"status"` // stopped, starting, running, stopping, error
+    PID        int               `json:"pid,omitempty"`
+    Ports      []int             `json:"ports,omitempty"`
+    TemplateID string            `json:"template_id"`
+    Vars       map[string]string `json:"vars"`
+    Command    string            `json:"command"`
+    Error      string            `json:"error,omitempty"`
+    CreatedAt  time.Time         `json:"created_at"`
+    StartedAt  *time.Time        `json:"started_at,omitempty"`
+    StoppedAt  *time.Time        `json:"stopped_at,omitempty"`
+}
+```
+
+**CLI Interface:**
+```bash
+vp start node-express api-server --port=3000 --env=dev
+vp stop api-server
+vp ps                           # List managed instances
+vp ps --all                     # Include stopped instances
+vp status api-server            # Detailed instance status
+```
+
+**Key Functions:**
+```go
+// Interpolate variables in command template
+func InterpolateCommand(template string, vars map[string]string) string {
+    result := template
+    for key, value := range vars {
+        result = strings.ReplaceAll(result, "${"+key+"}", value)
+    }
+    return result
+}
+
+// Start process using os/exec
+func StartProcess(cmd string) (*exec.Cmd, error) {
+    parts := strings.Fields(cmd)
+    process := exec.Command(parts[0], parts[1:]...)
+    process.Stdout = os.Stdout
+    process.Stderr = os.Stderr
+    err := process.Start()
+    return process, err
+}
+```
 
 **Deliverables:**
-- Functional state management
-- Working variable substitution (${port}, %tcpport)
-- Resource conflict detection
-- Data persistence across page refreshes
+- Can start processes from templates
+- Variable interpolation working
+- Process tracking with PIDs
+- Persistent instance state
+- Basic error handling
 
-### Phase 1.3: Dashboard Layout & Navigation (Day 2)
+### Phase 3: Resource Management (Day 3)
+
+**Goal**: Port allocation, conflict detection, and auto-increment counters.
 
 **Tasks:**
-1. Create main Dashboard component
-2. Implement tabbed navigation (Instances, Templates, Resources, Logs)
-3. Build responsive layout with proper spacing
-4. Add theme provider for dark mode support
-5. Create header with app branding
-6. Add status indicators and global metrics
+1. Implement port conflict detection
+2. Add auto-increment port counters (%tcpport, %vnc, %serial)
+3. Implement `vp ports` - list port allocations
+4. Add resource validation before starting instances
+5. Track file resource usage
+6. Implement `vp resources` - show all resource allocations
+7. Store resource state in `resources.json`
+
+**Data Structures:**
+```go
+type ResourceAllocation struct {
+    Type       string    `json:"type"` // port, file
+    Value      string    `json:"value"`
+    InstanceID string    `json:"instance_id"`
+    Instance   string    `json:"instance_name"`
+    AllocatedAt time.Time `json:"allocated_at"`
+}
+
+type PortCounter struct {
+    Name    string `json:"name"`    // tcpport, vnc, serial
+    Current int    `json:"current"`
+    Min     int    `json:"min"`
+    Max     int    `json:"max"`
+}
+```
+
+**CLI Interface:**
+```bash
+vp ports                        # List port allocations
+vp ports --available            # Show available ports in ranges
+vp resources                    # Show all resources (ports + files)
+vp check-conflicts <instance>   # Check for resource conflicts
+```
+
+**Key Functions:**
+```go
+// Check if port is available on system
+func IsPortAvailable(port int) bool {
+    ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+    if err != nil {
+        return false
+    }
+    ln.Close()
+    return true
+}
+
+// Get next available port from counter
+func GetNextPort(counter *PortCounter, allocations []ResourceAllocation) int {
+    for port := counter.Current; port <= counter.Max; port++ {
+        if IsPortAvailable(port) && !isPortAllocated(port, allocations) {
+            counter.Current = port + 1
+            return port
+        }
+    }
+    return -1
+}
+
+// Detect resource conflicts before starting
+func DetectConflicts(instance *ProcessInstance, allInstances []ProcessInstance) []string {
+    var conflicts []string
+    for _, port := range instance.Ports {
+        for _, other := range allInstances {
+            if other.ID != instance.ID && other.Status == "running" {
+                for _, otherPort := range other.Ports {
+                    if port == otherPort {
+                        conflicts = append(conflicts,
+                            fmt.Sprintf("Port %d in use by %s", port, other.Name))
+                    }
+                }
+            }
+        }
+    }
+    return conflicts
+}
+```
+
+**Enhanced Variable Interpolation:**
+```go
+func InterpolateWithCounters(template string, vars map[string]string,
+                             counters map[string]*PortCounter,
+                             allocations []ResourceAllocation) string {
+    result := template
+
+    // Standard variables: ${var}
+    for key, value := range vars {
+        result = strings.ReplaceAll(result, "${"+key+"}", value)
+    }
+
+    // Auto-increment counters: %tcpport
+    for name, counter := range counters {
+        if strings.Contains(result, "%"+name) {
+            port := GetNextPort(counter, allocations)
+            result = strings.ReplaceAll(result, "%"+name, fmt.Sprintf("%d", port))
+        }
+    }
+
+    return result
+}
+```
 
 **Deliverables:**
-- Complete dashboard layout
-- Tabbed navigation working
-- Responsive design
-- Dark mode toggle
+- Port conflict detection working
+- Auto-increment port allocation
+- Resource tracking
+- Pre-flight validation before starting
+- Clear conflict error messages
 
-### Phase 1.4: Process Instances UI (Day 3)
+### Phase 4: Process Monitoring (Day 4)
+
+**Goal**: Real-time CPU/memory monitoring and uptime tracking.
 
 **Tasks:**
-1. Build InstanceCard component with status badges
-2. Create InstanceForm for creating/editing
-3. Implement start/stop button functionality
-4. Add process metrics display (CPU, memory, uptime)
-5. Build CreateInstanceModal
-6. Add instance filtering and sorting
-7. Implement connection button with ConnectionModal
+1. Implement process metrics collection using `/proc` or `ps`
+2. Add goroutine for continuous metric updates
+3. Implement `vp stats <name>` - show process metrics
+4. Add uptime calculation
+5. Store metric history (last 100 samples)
+6. Add process health checking (detect crashes)
+7. Auto-update instance status on process exit
+
+**Data Structures:**
+```go
+type ProcessMetrics struct {
+    CPU    float64   `json:"cpu_usage"`    // Percentage
+    Memory uint64    `json:"memory_usage"` // Bytes
+    Uptime int64     `json:"uptime"`       // Seconds
+    Time   time.Time `json:"timestamp"`
+}
+
+type InstanceWithMetrics struct {
+    *ProcessInstance
+    CurrentMetrics  *ProcessMetrics   `json:"current_metrics,omitempty"`
+    MetricsHistory  []ProcessMetrics  `json:"metrics_history,omitempty"`
+}
+```
+
+**CLI Interface:**
+```bash
+vp stats api-server             # Show current metrics
+vp stats api-server --watch     # Continuously update (like top)
+vp stats --all                  # Show metrics for all running instances
+```
+
+**Key Functions:**
+```go
+// Read process stats from /proc/[pid]/stat (Linux)
+func GetProcessStats(pid int) (*ProcessMetrics, error) {
+    statPath := fmt.Sprintf("/proc/%d/stat", pid)
+    data, err := os.ReadFile(statPath)
+    if err != nil {
+        return nil, err
+    }
+
+    fields := strings.Fields(string(data))
+    // Parse CPU time (fields 13, 14)
+    // Parse memory (field 23)
+    // Calculate percentages
+
+    return &ProcessMetrics{
+        CPU:    cpuPercent,
+        Memory: memoryBytes,
+        Uptime: uptime,
+        Time:   time.Now(),
+    }, nil
+}
+
+// Background monitoring goroutine
+func MonitorProcess(instance *ProcessInstance, stopChan chan bool) {
+    ticker := time.NewTicker(5 * time.Second)
+    defer ticker.Stop()
+
+    for {
+        select {
+        case <-ticker.C:
+            if !isProcessRunning(instance.PID) {
+                instance.Status = "stopped"
+                instance.StoppedAt = timePtr(time.Now())
+                return
+            }
+
+            metrics, err := GetProcessStats(instance.PID)
+            if err == nil {
+                instance.CurrentMetrics = metrics
+                // Store in history (keep last 100)
+            }
+        case <-stopChan:
+            return
+        }
+    }
+}
+```
 
 **Deliverables:**
-- Full instances management UI
-- Start/stop simulation with status transitions
-- Metrics visualization
-- Connection commands execution
+- Real-time CPU/memory monitoring
+- Uptime tracking
+- Metrics history
+- Auto-detection of crashed processes
+- Watch mode for live updates
 
-### Phase 1.5: Process Templates UI (Day 3-4)
+### Phase 5: Web UI - Embedded Server (Day 5)
+
+**Goal**: Basic web interface served by Go binary.
 
 **Tasks:**
-1. Build TemplateCard component
-2. Create TemplateForm for template creation
-3. Add variable editor with syntax highlighting
-4. Implement template preview functionality
-5. Build CreateTemplateModal
-6. Add template deletion with confirmation
-7. Create default template library
+1. Create HTTP server using `net/http` stdlib
+2. Implement REST API endpoints
+3. Create single-page HTML dashboard
+4. Add vanilla JavaScript for API calls
+5. Embed web files using `embed` package
+6. Implement `vp serve` - start web UI server
+7. Add basic CSS for styling
+
+**API Endpoints:**
+```go
+// API routes
+GET  /api/instances              # List all instances
+GET  /api/instances/:id          # Get instance details
+POST /api/instances              # Create new instance
+POST /api/instances/:id/start    # Start instance
+POST /api/instances/:id/stop     # Stop instance
+DELETE /api/instances/:id        # Delete instance
+
+GET  /api/templates              # List templates
+GET  /api/templates/:id          # Get template
+POST /api/templates              # Create template
+
+GET  /api/resources              # List resource allocations
+GET  /api/ports                  # List port allocations
+
+GET  /api/logs                   # Get event logs
+```
+
+**Server Implementation:**
+```go
+package api
+
+import (
+    "embed"
+    "encoding/json"
+    "net/http"
+)
+
+//go:embed web/*
+var webContent embed.FS
+
+func StartServer(addr string) error {
+    // Serve embedded web UI
+    http.Handle("/", http.FileServer(http.FS(webContent)))
+
+    // API routes
+    http.HandleFunc("/api/instances", handleInstances)
+    http.HandleFunc("/api/templates", handleTemplates)
+    http.HandleFunc("/api/resources", handleResources)
+
+    fmt.Printf("Server starting on http://%s\n", addr)
+    return http.ListenAndServe(addr, nil)
+}
+
+func handleInstances(w http.ResponseWriter, r *http.Request) {
+    switch r.Method {
+    case "GET":
+        instances, _ := store.ListInstances()
+        json.NewEncoder(w).Encode(instances)
+    case "POST":
+        var req CreateInstanceRequest
+        json.NewDecoder(r.Body).Decode(&req)
+        instance, err := createInstance(req)
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusBadRequest)
+            return
+        }
+        json.NewEncoder(w).Encode(instance)
+    }
+}
+```
+
+**Web UI (Minimal HTML):**
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Vibeprocess Manager</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: system-ui; padding: 20px; }
+        .tabs { display: flex; gap: 10px; margin-bottom: 20px; }
+        .tab { padding: 10px 20px; cursor: pointer; border: 1px solid #ccc; }
+        .tab.active { background: #007bff; color: white; }
+        .instance { border: 1px solid #ddd; padding: 15px; margin: 10px 0; }
+        .status { display: inline-block; padding: 4px 8px; border-radius: 3px; }
+        .status.running { background: #28a745; color: white; }
+        .status.stopped { background: #6c757d; color: white; }
+        button { padding: 8px 16px; margin: 4px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>Vibeprocess Manager</h1>
+
+    <div class="tabs">
+        <div class="tab active" onclick="showTab('instances')">Instances</div>
+        <div class="tab" onclick="showTab('templates')">Templates</div>
+        <div class="tab" onclick="showTab('resources')">Resources</div>
+    </div>
+
+    <div id="instances-tab">
+        <button onclick="createInstance()">+ New Instance</button>
+        <div id="instances-list"></div>
+    </div>
+
+    <script>
+        async function loadInstances() {
+            const res = await fetch('/api/instances');
+            const instances = await res.json();
+            const html = instances.map(i => `
+                <div class="instance">
+                    <h3>${i.name}</h3>
+                    <span class="status ${i.status}">${i.status}</span>
+                    <p>PID: ${i.pid || 'N/A'} | Ports: ${i.ports.join(', ')}</p>
+                    <button onclick="startInstance('${i.id}')">Start</button>
+                    <button onclick="stopInstance('${i.id}')">Stop</button>
+                </div>
+            `).join('');
+            document.getElementById('instances-list').innerHTML = html;
+        }
+
+        async function startInstance(id) {
+            await fetch(`/api/instances/${id}/start`, { method: 'POST' });
+            loadInstances();
+        }
+
+        async function stopInstance(id) {
+            await fetch(`/api/instances/${id}/stop`, { method: 'POST' });
+            loadInstances();
+        }
+
+        loadInstances();
+        setInterval(loadInstances, 5000); // Auto-refresh
+    </script>
+</body>
+</html>
+```
+
+**CLI Interface:**
+```bash
+vp serve                        # Start web UI on :8080
+vp serve --port 3000            # Start on custom port
+vp serve --open                 # Start and open browser
+```
 
 **Deliverables:**
-- Template management interface
-- Template creation/editing forms
-- Visual template preview
-- Pre-configured example templates
+- Working web UI accessible via browser
+- REST API for all operations
+- Embedded files (single binary deployment)
+- Auto-refreshing instance list
+- Start/stop buttons functional
+- No external JavaScript dependencies
 
-### Phase 1.6: Resource Management UI (Day 4)
+### Phase 6: Connection Commands (Day 6)
+
+**Goal**: Execute connection commands from UI and CLI.
 
 **Tasks:**
-1. Build ResourcesTab component
-2. Create PortAllocationTable showing allocations
-3. Add resource filter (all, in use, available)
-4. Implement ConflictIndicator component
-5. Show resource allocation history
-6. Display PID assignments
-7. Add resource usage statistics
+1. Implement `vp connect <instance> [command]` CLI
+2. Add connection command execution in API
+3. Add connection buttons to web UI
+4. Support multiple connection types per instance
+5. Variable interpolation in connection commands
+6. Add connection history logging
+
+**CLI Interface:**
+```bash
+vp connect api-server            # Show available connections
+vp connect api-server browser    # Execute browser connection
+vp connect api-server curl       # Execute curl connection
+vp connections api-server        # List available connections
+```
+
+**Implementation:**
+```go
+func ExecuteConnection(instance *ProcessInstance, template *Template,
+                       connType string) error {
+    connCmd, ok := template.Connections[connType]
+    if !ok {
+        return fmt.Errorf("connection type %s not found", connType)
+    }
+
+    // Interpolate variables
+    cmd := InterpolateCommand(connCmd, instance.Vars)
+
+    // Execute command
+    parts := strings.Fields(cmd)
+    exec.Command(parts[0], parts[1:]...).Start()
+
+    // Log connection
+    logConnection(instance, connType)
+
+    return nil
+}
+```
+
+**Web UI Enhancement:**
+```javascript
+function renderConnectionButtons(instance, template) {
+    const connections = Object.keys(template.connections || {});
+    return connections.map(conn =>
+        `<button onclick="executeConnection('${instance.id}', '${conn}')">
+            ${conn}
+        </button>`
+    ).join('');
+}
+
+async function executeConnection(instanceId, connType) {
+    await fetch(`/api/instances/${instanceId}/connect/${connType}`,
+                { method: 'POST' });
+}
+```
 
 **Deliverables:**
-- Resource overview dashboard
-- Port allocation visualization
-- Conflict detection display
-- Resource filtering
+- Connection commands working from CLI
+- Connection buttons in web UI
+- Support for browser, curl, ssh, vnc, etc.
+- Connection history tracking
 
-### Phase 1.7: Logs & History (Day 5)
+### Phase 7: Logging & History (Day 7)
+
+**Goal**: Event logging and history visualization.
 
 **Tasks:**
-1. Create LogsTab component
-2. Implement event logging system
-3. Add log filtering (by instance, by type, by date)
-4. Create log entry components
-5. Add start/stop event logging
-6. Implement error message display
+1. Implement structured logging system
+2. Log all instance lifecycle events
+3. Log resource allocations/deallocations
+4. Add `vp logs` CLI command
+5. Add Logs tab to web UI
+6. Implement log filtering and search
 7. Add log export functionality
 
-**Deliverables:**
-- Logs view with filtering
-- Event history tracking
-- Error message display
-
-### Phase 1.8: Polish & UX Refinements (Day 5-6)
-
-**Tasks:**
-1. Add loading states and animations
-2. Implement error handling and user feedback
-3. Add confirmation dialogs for destructive actions
-4. Improve keyboard navigation and accessibility
-5. Add tooltips for complex features
-6. Optimize performance (memoization, lazy loading)
-7. Add empty states with helpful CTAs
-8. Create onboarding hints for first-time users
-
-**Deliverables:**
-- Polished user experience
-- Comprehensive error handling
-- Accessibility improvements
-- Performance optimizations
-
-### Phase 1.9: Testing & Documentation (Day 6-7)
-
-**Tasks:**
-1. Manual testing of all features
-2. Cross-browser testing
-3. Responsive design testing (mobile, tablet, desktop)
-4. Create README.md with setup instructions
-5. Document component API and usage
-6. Add inline code comments
-7. Create user guide screenshots
-8. Test data persistence and recovery
-
-**Deliverables:**
-- Fully tested application
-- Comprehensive README
-- User documentation
-- Bug-free release
-
----
-
-## 4. Data Models (TypeScript Interfaces)
-
-```typescript
-// lib/types.ts
-
-export type ProcessStatus =
-  | "stopped"
-  | "starting"
-  | "running"
-  | "stopping"
-  | "error";
-
-export interface Template {
-  id: string;
-  label: string;
-  command_template: string;
-  defaults?: Record<string, string>;
-  variables?: string[];
-  resources?: {
-    ports?: string[];
-    files?: string[];
-  };
-  exposes?: Record<string, string>;
-  connections?: Record<string, string>;
-  notes?: string;
-  ai_instructions?: string;
-}
-
-export interface ProcessInstance {
-  id: string;
-  name: string;
-  status: ProcessStatus;
-  pid: number | null;
-  ports: number[];
-  template_id: string;
-  notes?: string;
-  vars: Record<string, string>;
-  command: string;
-  error_message?: string;
-  cpu_usage?: number;
-  memory_usage?: number;
-  uptime?: number;
-  created_at: string;
-  started_at?: string;
-  stopped_at?: string;
-}
-
-export interface ResourceAllocation {
-  type: "port" | "file";
-  value: string | number;
-  instance_id: string;
-  instance_name: string;
-  allocated_at: string;
-}
-
-export interface LogEntry {
-  id: string;
-  timestamp: string;
-  type: "info" | "warn" | "error" | "success";
-  instance_id?: string;
-  instance_name?: string;
-  message: string;
-}
-
-export interface PortCounter {
-  name: string; // e.g., "tcpport", "vnc"
-  current: number;
-  min: number;
-  max: number;
+**Data Structures:**
+```go
+type LogEntry struct {
+    ID         string    `json:"id"`
+    Timestamp  time.Time `json:"timestamp"`
+    Level      string    `json:"level"` // info, warn, error, success
+    InstanceID string    `json:"instance_id,omitempty"`
+    Instance   string    `json:"instance_name,omitempty"`
+    Message    string    `json:"message"`
+    Details    string    `json:"details,omitempty"`
 }
 ```
 
+**CLI Interface:**
+```bash
+vp logs                         # Show recent logs
+vp logs --follow                # Follow logs (like tail -f)
+vp logs --instance api-server   # Filter by instance
+vp logs --level error           # Filter by level
+vp logs --export logs.json      # Export to file
+```
+
+**Logging Functions:**
+```go
+func LogEvent(level, instanceID, instanceName, message string) {
+    entry := LogEntry{
+        ID:         generateID(),
+        Timestamp:  time.Now(),
+        Level:      level,
+        InstanceID: instanceID,
+        Instance:   instanceName,
+        Message:    message,
+    }
+
+    store.AppendLog(entry)
+
+    // Also write to stdout/stderr
+    fmt.Printf("[%s] %s: %s\n", level, instanceName, message)
+}
+
+// Usage examples
+LogEvent("info", inst.ID, inst.Name, "Starting process")
+LogEvent("success", inst.ID, inst.Name, "Process started successfully")
+LogEvent("error", inst.ID, inst.Name, "Failed to start: port conflict")
+```
+
+**Deliverables:**
+- Comprehensive event logging
+- Log filtering and search
+- Log export
+- Web UI logs tab
+- Real-time log streaming
+
 ---
 
-## 5. Mock Data Examples
+## 4. Data Persistence
 
-```typescript
-// lib/mock-data.ts
+### File Structure
+```
+~/.vibeprocess/
+├── config.json              # Global configuration
+├── templates/               # Template library
+│   ├── node-express.json
+│   ├── postgresql.json
+│   └── custom-app.json
+├── instances.json           # Active and stopped instances
+├── resources.json           # Resource allocations
+├── counters.json            # Port counters state
+└── logs.json                # Event logs
+```
 
-export const mockTemplates: Template[] = [
+### Example Files
+
+**instances.json:**
+```json
+[
   {
-    id: "node-express",
-    label: "Node.js Express Server",
-    command_template: "node server.js --port ${port} --env ${env}",
-    defaults: { port: "%tcpport", env: "development" },
-    variables: ["port", "env"],
-    resources: {
-      ports: ["${port}"],
-      files: ["server.js", "package.json"]
-    },
-    exposes: { http: ":${port}" },
-    connections: {
-      curl: "curl -I http://localhost:${port}",
-      browser: "open http://localhost:${port}"
-    },
-    notes: "Standard Node.js Express server configuration"
-  },
-  {
-    id: "postgresql",
-    label: "PostgreSQL Database",
-    command_template: "postgres -D ${data_dir} -p ${port}",
-    defaults: { data_dir: "/var/lib/postgresql/data", port: "5432" },
-    variables: ["data_dir", "port"],
-    resources: {
-      ports: ["${port}"],
-      files: ["${data_dir}"]
-    },
-    exposes: { psql: ":${port}" },
-    connections: {
-      psql: "psql -h localhost -p ${port} -U postgres"
-    }
-  },
-  {
-    id: "redis",
-    label: "Redis Cache",
-    command_template: "redis-server --port ${port} --dir ${data_dir}",
-    defaults: { port: "6379", data_dir: "/var/lib/redis" },
-    variables: ["port", "data_dir"],
-    resources: {
-      ports: ["${port}"],
-      files: ["${data_dir}"]
-    },
-    connections: {
-      cli: "redis-cli -p ${port}"
-    }
+    "id": "inst-abc123",
+    "name": "api-server",
+    "status": "running",
+    "pid": 12345,
+    "ports": [3000],
+    "template_id": "node-express",
+    "vars": {"port": "3000", "env": "development"},
+    "command": "node server.js --port 3000 --env development",
+    "created_at": "2025-11-13T10:00:00Z",
+    "started_at": "2025-11-13T10:05:00Z"
   }
-];
+]
+```
 
-export const mockInstances: ProcessInstance[] = [
-  {
-    id: "inst-1",
-    name: "Dev API Server",
-    status: "running",
-    pid: 12345,
-    ports: [3000],
-    template_id: "node-express",
-    vars: { port: "3000", env: "development" },
-    command: "node server.js --port 3000 --env development",
-    cpu_usage: 12.5,
-    memory_usage: 256,
-    uptime: 3600,
-    created_at: "2025-11-13T10:00:00Z",
-    started_at: "2025-11-13T10:05:00Z"
-  },
-  {
-    id: "inst-2",
-    name: "Test Database",
-    status: "stopped",
-    pid: null,
-    ports: [],
-    template_id: "postgresql",
-    vars: { port: "5433", data_dir: "/var/lib/postgresql/test" },
-    command: "postgres -D /var/lib/postgresql/test -p 5433",
-    created_at: "2025-11-13T09:00:00Z",
-    stopped_at: "2025-11-13T11:30:00Z"
-  }
-];
+**counters.json:**
+```json
+{
+  "tcpport": {"name": "tcpport", "current": 3000, "min": 3000, "max": 9999},
+  "vnc": {"name": "vnc", "current": 5900, "min": 5900, "max": 5999},
+  "serialport": {"name": "serialport", "current": 9600, "min": 9600, "max": 9699}
+}
 ```
 
 ---
 
-## 6. Key Features Implementation Details
+## 5. Build System
 
-### 6.1 Variable Interpolation
+### Makefile
+```makefile
+.PHONY: build run test clean install
 
-```typescript
-// lib/variable-interpolation.ts
+build:
+	go build -o vp main.go
 
-export function interpolateVariables(
-  template: string,
-  vars: Record<string, string>,
-  counters: Record<string, PortCounter>
-): string {
-  let result = template;
+run:
+	go run main.go
 
-  // Replace ${variable} with values
-  Object.entries(vars).forEach(([key, value]) => {
-    result = result.replace(new RegExp(`\\$\\{${key}\\}`, 'g'), value);
-  });
+test:
+	go test ./...
 
-  // Replace %counter with auto-incremented values
-  Object.entries(counters).forEach(([key, counter]) => {
-    if (result.includes(`%${key}`)) {
-      const nextValue = getNextAvailableValue(counter);
-      result = result.replace(`%${key}`, String(nextValue));
+clean:
+	rm -f vp
+	rm -rf dist/
+
+install:
+	go install
+
+# Build for multiple platforms
+release:
+	GOOS=linux GOARCH=amd64 go build -o dist/vp-linux-amd64
+	GOOS=darwin GOARCH=amd64 go build -o dist/vp-darwin-amd64
+	GOOS=darwin GOARCH=arm64 go build -o dist/vp-darwin-arm64
+	GOOS=windows GOARCH=amd64 go build -o dist/vp-windows-amd64.exe
+
+# Development with hot reload (using entr or air)
+dev:
+	find . -name "*.go" | entr -r go run main.go serve
+```
+
+### go.mod (Initial)
+```go
+module github.com/user/vp
+
+go 1.21
+
+// No dependencies initially - stdlib only
+```
+
+---
+
+## 6. Testing Strategy
+
+### Unit Tests
+```go
+// internal/process/interpolate_test.go
+func TestInterpolateCommand(t *testing.T) {
+    tests := []struct {
+        template string
+        vars     map[string]string
+        expected string
+    }{
+        {
+            "node server.js --port ${port}",
+            map[string]string{"port": "3000"},
+            "node server.js --port 3000",
+        },
     }
-  });
 
-  return result;
-}
-
-function getNextAvailableValue(counter: PortCounter): number {
-  // Implementation for finding next available port
-  // Checks system availability and increments
-  return counter.current++;
-}
-```
-
-### 6.2 Resource Conflict Detection
-
-```typescript
-// lib/resource-manager.ts
-
-export function detectConflicts(
-  instance: ProcessInstance,
-  allInstances: ProcessInstance[]
-): string[] {
-  const conflicts: string[] = [];
-
-  // Check port conflicts
-  instance.ports.forEach(port => {
-    const conflicting = allInstances.find(
-      inst => inst.id !== instance.id &&
-              inst.status === 'running' &&
-              inst.ports.includes(port)
-    );
-    if (conflicting) {
-      conflicts.push(`Port ${port} already in use by ${conflicting.name}`);
+    for _, tt := range tests {
+        result := InterpolateCommand(tt.template, tt.vars)
+        if result != tt.expected {
+            t.Errorf("got %s, want %s", result, tt.expected)
+        }
     }
-  });
+}
 
-  // Check file conflicts (for Phase 1, simplified)
-  // Future: Check actual file system locks
+// internal/process/resources_test.go
+func TestDetectConflicts(t *testing.T) {
+    instances := []ProcessInstance{
+        {ID: "inst1", Status: "running", Ports: []int{3000}},
+    }
 
-  return conflicts;
+    newInst := ProcessInstance{
+        ID: "inst2", Ports: []int{3000},
+    }
+
+    conflicts := DetectConflicts(&newInst, instances)
+    if len(conflicts) != 1 {
+        t.Errorf("expected 1 conflict, got %d", len(conflicts))
+    }
 }
 ```
 
-### 6.3 Process Status Simulation
-
-```typescript
-// Mock process lifecycle for Phase 1
-export function simulateProcessStart(instanceId: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    // Simulate starting delay
-    setTimeout(() => {
-      // 90% success rate in mock
-      if (Math.random() > 0.1) {
-        resolve();
-      } else {
-        reject(new Error('Failed to start process'));
-      }
-    }, 2000);
-  });
-}
-
-export function simulateProcessStop(instanceId: string): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, 1000);
-  });
-}
-
-// Mock metrics generation
-export function generateMockMetrics() {
-  return {
-    cpu_usage: Math.random() * 100,
-    memory_usage: Math.random() * 1024
-  };
-}
+### Integration Tests
+```bash
+# Test full workflow
+./vp template add templates/node-express.json
+./vp start node-express test-server --port=3001
+./vp ps | grep test-server
+./vp stop test-server
 ```
 
 ---
 
-## 7. UI Component Specifications
+## 7. Progressive Enhancement Roadmap
 
-### 7.1 InstanceCard Component
+### Phase 8: Advanced Features (Week 2)
+- [ ] Process restart on failure
+- [ ] Scheduled process starts (cron-like)
+- [ ] Process groups (start/stop multiple)
+- [ ] Environment variable management
+- [ ] Output capture and log streaming
+- [ ] Health checks and auto-restart
+- [ ] Systemd integration
 
-**Props:**
-- `instance: ProcessInstance`
-- `onStart: () => void`
-- `onStop: () => void`
-- `onEdit: () => void`
-- `onConnect: () => void`
+### Phase 9: UI Enhancements (Week 3)
+- [ ] Better CSS styling (consider adding Tailwind via CDN)
+- [ ] Real-time metrics charts
+- [ ] Dark mode toggle
+- [ ] Process dependency visualization
+- [ ] Drag-and-drop template editor
+- [ ] In-browser terminal for process output
 
-**Features:**
-- Color-coded status badge (green=running, gray=stopped, yellow=starting, red=error)
-- CPU/memory progress bars
-- Uptime display
-- Port allocations list
-- Quick action buttons
-- Expandable details section
-
-### 7.2 TemplateCard Component
-
-**Props:**
-- `template: Template`
-- `onUse: () => void`
-- `onEdit: () => void`
-- `onDelete: () => void`
-
-**Features:**
-- Template name and description
-- Variable list display
-- Command preview
-- Usage count indicator
-- Quick "Use Template" button
-
-### 7.3 Dashboard Tabs Structure
-
-**Instances Tab:**
-- Grid/list view toggle
-- Status filter (all, running, stopped, error)
-- Sort options (name, status, CPU, memory)
-- Search bar
-- "Create Instance" button
-
-**Templates Tab:**
-- Grid view of template cards
-- Search/filter by type
-- "Create Template" button
-- "Import Template" button (future)
-
-**Resources Tab:**
-- Port allocation table
-- File resource list
-- Conflict warnings
-- Resource usage charts
-
-**Logs Tab:**
-- Chronological log entries
-- Filter by instance
-- Filter by log level
-- Search functionality
-- Clear logs button
+### Phase 10: Distribution (Week 4)
+- [ ] Package for apt/yum/brew
+- [ ] Docker image
+- [ ] Installation script
+- [ ] Auto-update mechanism
+- [ ] Documentation site
+- [ ] Video tutorials
 
 ---
 
-## 8. Development Workflow
+## 8. Dependencies Justification
+
+### Phase 1-7: Zero External Dependencies
+- **stdlib only**: All features using Go standard library
+- **Rationale**: Simplicity, security, minimal attack surface
+
+### Future Considerations (Phase 8+)
+When absolutely needed, consider:
+- **cobra**: CLI framework (better than flag package for complex CLIs)
+- **chi/mux**: HTTP router (better than stdlib for REST APIs)
+- **sqlite**: Embedded database (better than JSON for large datasets)
+- **websocket**: Real-time updates (better than polling)
+
+**Decision criteria**: Only add dependency if:
+1. Stdlib solution is significantly worse
+2. Dependency is well-maintained and popular
+3. Adds substantial value to users
+4. No security concerns
+
+---
+
+## 9. Success Criteria
+
+### Phase 1-3 (MVP)
+- [ ] Can start/stop processes from templates
+- [ ] Variable interpolation working
+- [ ] Port conflict detection
+- [ ] Persistent storage
+- [ ] CLI intuitive and working
+
+### Phase 4-5 (Usable)
+- [ ] Web UI functional
+- [ ] Real-time monitoring
+- [ ] Auto-increment counters
+- [ ] Resource tracking
+- [ ] Single binary distribution
+
+### Phase 6-7 (Complete)
+- [ ] Connection commands working
+- [ ] Comprehensive logging
+- [ ] All PRD features implemented
+- [ ] Documentation complete
+- [ ] Ready for daily use
+
+---
+
+## 10. Timeline
+
+**Week 1: Core Functionality**
+- Day 1: Minimal CLI, templates
+- Day 2: Instance management
+- Day 3: Resource management
+- Day 4: Process monitoring
+- Day 5: Web UI
+- Day 6: Connection commands
+- Day 7: Logging, polish
+
+**Week 2: Production Ready**
+- Testing and bug fixes
+- Documentation
+- Example templates
+- Installation scripts
+
+**Week 3+: Enhancements**
+- Advanced features
+- UI improvements
+- Community feedback
+
+---
+
+## 11. Getting Started
 
 ### Setup Commands
 ```bash
 # Initialize project
-npx create-next-app@latest vp --typescript --tailwind --app
+mkdir -p ~/vp
+cd ~/vp
+go mod init github.com/user/vp
 
-# Install shadcn/ui
-npx shadcn-ui@latest init
+# Create directory structure
+mkdir -p cmd internal/{models,store,process,api,ui} web templates/default data
 
-# Install components
-npx shadcn-ui@latest add button card dialog tabs badge input label select
+# Create main.go
+cat > main.go << 'EOF'
+package main
 
-# Install additional dependencies
-npm install lucide-react date-fns
+import (
+    "fmt"
+    "os"
+)
+
+func main() {
+    fmt.Println("Vibeprocess Manager v0.1.0")
+    if len(os.Args) < 2 {
+        fmt.Println("Usage: vp <command>")
+        os.Exit(1)
+    }
+}
+EOF
+
+# Build and run
+go build -o vp main.go
+./vp
 ```
 
-### Development Commands
+### First Template
 ```bash
-# Start dev server
-npm run dev
+# Create node-express template
+cat > templates/default/node-express.json << 'EOF'
+{
+  "id": "node-express",
+  "label": "Node.js Express Server",
+  "command_template": "node server.js --port ${port} --env ${env}",
+  "defaults": {"port": "%tcpport", "env": "development"},
+  "variables": ["port", "env"],
+  "resources": {
+    "ports": ["${port}"],
+    "files": ["server.js", "package.json"]
+  },
+  "exposes": {"http": ":${port}"},
+  "connections": {
+    "curl": "curl -I http://localhost:${port}",
+    "browser": "open http://localhost:${port}"
+  }
+}
+EOF
 
-# Type check
-npm run type-check
-
-# Lint
-npm run lint
-
-# Build
-npm run build
-
-# Start production server
-npm start
+./vp template add templates/default/node-express.json
+./vp template list
 ```
 
 ---
 
-## 9. Success Criteria for Phase 1
+## 12. Comparison: Go vs Next.js Approach
 
-### Functional Requirements
-- [ ] Create and manage process templates
-- [ ] Create instances from templates
-- [ ] Start/stop instances (simulated)
-- [ ] View process metrics (mock data)
-- [ ] Detect port conflicts before starting
-- [ ] Variable interpolation working
-- [ ] Connection commands work
-- [ ] Data persists in localStorage
-- [ ] All tabs functional
+| Aspect | Go Approach | Next.js Approach |
+|--------|-------------|------------------|
+| **Binary Size** | ~10MB | ~200MB (with node_modules) |
+| **Startup Time** | <10ms | ~1-2s |
+| **Memory Usage** | ~20MB | ~100-200MB |
+| **Dependencies** | 0 (stdlib only) | ~1000 npm packages |
+| **Distribution** | Single binary | npm install + node |
+| **Process Management** | Native | child_process wrapper |
+| **System Integration** | Direct /proc access | OS commands via exec |
+| **Learning Curve** | Go basics | React + Next.js + TypeScript |
+| **Deployment** | Copy binary | Deploy Node.js app |
 
-### Non-Functional Requirements
-- [ ] Responsive design (mobile, tablet, desktop)
-- [ ] Dark mode support
-- [ ] < 2s page load time
-- [ ] Accessible (keyboard navigation, ARIA labels)
-- [ ] No console errors
-- [ ] Type-safe (no TypeScript errors)
-
-### User Experience
-- [ ] Intuitive navigation
-- [ ] Clear error messages
-- [ ] Loading states for async operations
-- [ ] Empty states with helpful guidance
-- [ ] Confirmation for destructive actions
+**Verdict**: Go is significantly better aligned with PRD goals:
+- "Minimal Dependencies" ✓
+- "Simple Architecture" ✓
+- System-level process management ✓
+- Single binary distribution ✓
 
 ---
 
-## 10. Phase 2 Preparation
+## 13. Next Steps
 
-While implementing Phase 1, keep in mind these architectural decisions for Phase 2:
-
-1. **API Design**: Structure components to easily swap mock data with API calls
-2. **State Management**: Use patterns that can scale to server state (React Query)
-3. **Process Communication**: Design connection system to work with real processes
-4. **Security**: Add input validation that will carry forward
-5. **Error Handling**: Build robust error handling from the start
-
----
-
-## 11. Timeline Estimate
-
-**Total Estimated Time: 5-7 days**
-
-- Day 1: Project setup, data layer, mock data
-- Day 2: Dashboard layout, navigation, state management
-- Day 3: Instances UI and functionality
-- Day 4: Templates UI and resource management
-- Day 5: Logs, polish, UX refinements
-- Day 6-7: Testing, documentation, bug fixes
+1. **Approve this Go-based plan**
+2. **Initialize Go project**
+3. **Implement Phase 1: Minimal CLI**
+4. **Test with real processes**
+5. **Iterate based on feedback**
+6. **Expand features incrementally**
 
 ---
 
-## 12. Next Steps
+## Appendix A: Example Session
 
-1. **Review and approve this plan**
-2. **Set up development environment**
-3. **Begin Phase 1.1: Project Setup**
-4. **Daily progress check-ins**
-5. **Demo after Phase 1.4 (instances working)**
-6. **Final review before Phase 2 planning**
+```bash
+# Install vp
+curl -sf https://example.com/install.sh | sh
+
+# Add templates
+vp template add https://example.com/templates/postgresql.json
+
+# Create and start instance
+vp start postgresql dev-db --port=5433 --data_dir=/tmp/pgdata
+# Output: Started 'dev-db' (PID: 12345) on port 5433
+
+# List running instances
+vp ps
+# NAME      STATUS   PID     PORTS  CPU%  MEM    UPTIME
+# dev-db    running  12345   5433   2.1   128MB  00:05:23
+
+# Connect to database
+vp connect dev-db psql
+# Executes: psql -h localhost -p 5433 -U postgres
+
+# View metrics
+vp stats dev-db
+# CPU: 2.1%  Memory: 128MB  Uptime: 5m23s
+
+# Stop instance
+vp stop dev-db
+# Output: Stopped 'dev-db' (PID: 12345)
+
+# Start web UI
+vp serve
+# Output: Server running at http://localhost:8080
+```
 
 ---
 
-## Appendix: Technology Research
+## Appendix B: Code Organization Principles
 
-### Why Not Other Frameworks?
+1. **Keep it simple**: Prefer simple solutions over clever ones
+2. **Stdlib first**: Only add dependencies when absolutely necessary
+3. **Errors are values**: Use Go's error handling idiomatically
+4. **Small interfaces**: Define minimal, focused interfaces
+5. **Table-driven tests**: Use table-driven tests for comprehensive coverage
+6. **Single responsibility**: Each package/function does one thing well
+7. **Documentation**: Every exported function has a doc comment
+8. **Examples**: Include runnable examples in docs
 
-**Vue.js/Nuxt**: Smaller ecosystem, team familiarity with React
-**Svelte/SvelteKit**: Less mature for production, smaller community
-**Plain React**: No built-in routing, more setup overhead
-**Angular**: Too heavy for this use case, steeper learning curve
+---
 
-### Why Tailwind over CSS Modules?
-
-- Faster development
-- Consistent design system
-- No naming conflicts
-- Easy responsive design
-- Works well with shadcn/ui
-
-### Why shadcn/ui over Material-UI/Chakra?
-
-- Lighter weight (copy components, not full library)
-- Full customization
-- Better TypeScript support
-- Accessible by default
-- Modern design aesthetic
+This plan provides a clear path from a minimal working program to a full-featured process manager, while staying true to the "minimal dependencies, simple architecture" philosophy.
