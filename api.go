@@ -3,7 +3,6 @@ package main
 import (
 	_ "embed"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 )
@@ -21,6 +20,8 @@ func ServeHTTP(addr string) error {
 	http.HandleFunc("/api/templates", handleTemplates)
 	http.HandleFunc("/api/resources", handleResources)
 	http.HandleFunc("/api/resource-types", handleResourceTypes)
+	http.HandleFunc("/api/discover", handleDiscover)
+	http.HandleFunc("/api/discover-port", handleDiscoverPort)
 
 	return http.ListenAndServe(addr, nil)
 }
@@ -180,4 +181,58 @@ func getPathParam(path, prefix string) string {
 		return ""
 	}
 	return strings.TrimPrefix(path, prefix)
+}
+
+func handleDiscover(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		PID  int    `json:"pid"`
+		Name string `json:"name"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	inst, err := DiscoverAndImportProcess(state, req.PID, req.Name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	json.NewEncoder(w).Encode(inst)
+}
+
+func handleDiscoverPort(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Port int    `json:"port"`
+		Name string `json:"name"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	inst, err := DiscoverAndImportProcessOnPort(state, req.Port, req.Name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	json.NewEncoder(w).Encode(inst)
 }

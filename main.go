@@ -34,9 +34,15 @@ func main() {
 		handleTemplate(args)
 	case "resource-type":
 		handleResourceType(args)
+	case "discover":
+		handleDiscoverCLI(args)
+	case "discover-port":
+		handleDiscoverPortCLI(args)
+	case "inspect":
+		handleInspect(args)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", cmd)
-		fmt.Fprintf(os.Stderr, "Commands: start, stop, ps, serve, template, resource-type\n")
+		fmt.Fprintf(os.Stderr, "Commands: start, stop, ps, serve, template, resource-type, discover, discover-port, inspect\n")
 		os.Exit(1)
 	}
 }
@@ -263,4 +269,153 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n-3] + "..."
+}
+
+func handleDiscoverCLI(args []string) {
+	if len(args) < 2 {
+		fmt.Fprintf(os.Stderr, "Usage: vp discover <pid> <name>\n")
+		fmt.Fprintf(os.Stderr, "  Discovers a process by PID and imports it as a managed instance\n")
+		os.Exit(1)
+	}
+
+	var pid int
+	if _, err := fmt.Sscanf(args[0], "%d", &pid); err != nil {
+		fmt.Fprintf(os.Stderr, "Invalid PID: %s\n", args[0])
+		os.Exit(1)
+	}
+
+	name := args[1]
+
+	inst, err := DiscoverAndImportProcess(state, pid, name)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error discovering process: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Discovered and imported process: %s\n", inst.Name)
+	fmt.Printf("  PID:     %d\n", inst.PID)
+	fmt.Printf("  Command: %s\n", inst.Command)
+
+	if inst.LaunchScript != nil {
+		fmt.Printf("\nLaunch script (child of shell):\n")
+		fmt.Printf("  Command: %s\n", inst.LaunchScript.Cmdline)
+		fmt.Printf("  CWD:     %s\n", inst.LaunchScript.Cwd)
+		fmt.Printf("  Exe:     %s\n", inst.LaunchScript.Exe)
+	}
+
+	if len(inst.ParentChain) > 0 {
+		fmt.Printf("\nParent chain:\n")
+		for i, parent := range inst.ParentChain {
+			fmt.Printf("  [%d] PID %d: %s (cwd: %s)\n", i, parent.PID, parent.Name, parent.Cwd)
+		}
+	}
+}
+
+func handleDiscoverPortCLI(args []string) {
+	if len(args) < 2 {
+		fmt.Fprintf(os.Stderr, "Usage: vp discover-port <port> <name>\n")
+		fmt.Fprintf(os.Stderr, "  Discovers a process listening on a port and imports it\n")
+		os.Exit(1)
+	}
+
+	var port int
+	if _, err := fmt.Sscanf(args[0], "%d", &port); err != nil {
+		fmt.Fprintf(os.Stderr, "Invalid port: %s\n", args[0])
+		os.Exit(1)
+	}
+
+	name := args[1]
+
+	inst, err := DiscoverAndImportProcessOnPort(state, port, name)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error discovering process: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Discovered and imported process on port %d: %s\n", port, inst.Name)
+	fmt.Printf("  PID:     %d\n", inst.PID)
+	fmt.Printf("  Command: %s\n", inst.Command)
+
+	if inst.LaunchScript != nil {
+		fmt.Printf("\nLaunch script (child of shell):\n")
+		fmt.Printf("  Command: %s\n", inst.LaunchScript.Cmdline)
+		fmt.Printf("  CWD:     %s\n", inst.LaunchScript.Cwd)
+		fmt.Printf("  Exe:     %s\n", inst.LaunchScript.Exe)
+	}
+
+	if len(inst.ParentChain) > 0 {
+		fmt.Printf("\nParent chain:\n")
+		for i, parent := range inst.ParentChain {
+			fmt.Printf("  [%d] PID %d: %s (cwd: %s)\n", i, parent.PID, parent.Name, parent.Cwd)
+		}
+	}
+}
+
+func handleInspect(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintf(os.Stderr, "Usage: vp inspect <name>\n")
+		fmt.Fprintf(os.Stderr, "  Shows detailed information about an instance\n")
+		os.Exit(1)
+	}
+
+	name := args[0]
+	inst := state.Instances[name]
+	if inst == nil {
+		fmt.Fprintf(os.Stderr, "Instance not found: %s\n", name)
+		os.Exit(1)
+	}
+
+	// Pretty print the instance details
+	data, _ := json.MarshalIndent(inst, "", "  ")
+	fmt.Println(string(data))
+
+	// Additional formatted output for better readability
+	fmt.Printf("\n--- Summary ---\n")
+	fmt.Printf("Name:     %s\n", inst.Name)
+	fmt.Printf("Status:   %s\n", inst.Status)
+	fmt.Printf("PID:      %d\n", inst.PID)
+	fmt.Printf("Template: %s\n", inst.Template)
+	fmt.Printf("Command:  %s\n", inst.Command)
+
+	if inst.Discovered {
+		fmt.Printf("\n--- Discovery Information ---\n")
+		fmt.Printf("This process was discovered (not started by vp)\n")
+
+		if inst.LaunchScript != nil {
+			fmt.Printf("\nLaunch Script (child of shell):\n")
+			fmt.Printf("  PID:     %d\n", inst.LaunchScript.PID)
+			fmt.Printf("  Name:    %s\n", inst.LaunchScript.Name)
+			fmt.Printf("  Command: %s\n", inst.LaunchScript.Cmdline)
+			fmt.Printf("  Exe:     %s\n", inst.LaunchScript.Exe)
+			fmt.Printf("  CWD:     %s\n", inst.LaunchScript.Cwd)
+
+			if len(inst.LaunchScript.Environ) > 0 {
+				fmt.Printf("  Key Environment Variables:\n")
+				for _, key := range []string{"PATH", "HOME", "USER", "PWD", "NODE_ENV", "PYTHON_ENV"} {
+					if val, ok := inst.LaunchScript.Environ[key]; ok {
+						fmt.Printf("    %s=%s\n", key, truncate(val, 80))
+					}
+				}
+			}
+		}
+
+		if len(inst.ParentChain) > 0 {
+			fmt.Printf("\nParent Process Chain:\n")
+			for i, parent := range inst.ParentChain {
+				fmt.Printf("  [%d] PID %d: %s\n", i, parent.PID, parent.Name)
+				fmt.Printf("      Command: %s\n", truncate(parent.Cmdline, 70))
+				fmt.Printf("      CWD:     %s\n", parent.Cwd)
+				if parent.Exe != "" {
+					fmt.Printf("      Exe:     %s\n", parent.Exe)
+				}
+			}
+		}
+	}
+
+	if len(inst.Resources) > 0 {
+		fmt.Printf("\n--- Resources ---\n")
+		for k, v := range inst.Resources {
+			fmt.Printf("  %s = %s\n", k, v)
+		}
+	}
 }
