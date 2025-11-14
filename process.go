@@ -130,6 +130,17 @@ func StartProcess(state *State, template *Template, name string, vars map[string
 	state.Instances[name] = inst
 	state.Save()
 
+	// Start a goroutine to wait for the process and reap it
+	go func() {
+		proc.Wait() // This reaps the zombie when process exits
+		// Process has exited, update status if instance still exists
+		if inst, exists := state.Instances[name]; exists && inst.PID == proc.Process.Pid {
+			inst.Status = "stopped"
+			inst.PID = 0
+			state.Save()
+		}
+	}()
+
 	return inst, nil
 }
 
@@ -141,24 +152,42 @@ func StopProcess(state *State, inst *Instance) error {
 
 	inst.Status = "stopping"
 
-	// Find and kill process
-	process, err := os.FindProcess(inst.PID)
+	// Kill the entire process group (negative PID)
+	// Since we started with Setpgid:true, we need to kill the group
+	pgid := inst.PID
+	err := syscall.Kill(-pgid, syscall.SIGTERM)
 	if err != nil {
-		inst.Status = "stopped"
-		inst.PID = 0
-		state.Save()
-		return nil // Process doesn't exist, consider it stopped
+		// If process group kill fails, try individual process
+		process, err := os.FindProcess(inst.PID)
+		if err != nil {
+			inst.Status = "stopped"
+			inst.PID = 0
+			state.Save()
+			return nil
+		}
+		process.Signal(syscall.SIGTERM)
 	}
 
-	// Try graceful shutdown first (SIGTERM)
-	err = process.Signal(os.Interrupt)
-	if err != nil {
-		// Force kill if graceful shutdown fails (SIGKILL)
-		process.Kill()
+	// Wait up to 2 seconds for graceful shutdown
+	for i := 0; i < 20; i++ {
+		if !IsProcessRunning(inst.PID) {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 
-	// Wait a bit for process to exit
-	time.Sleep(100 * time.Millisecond)
+	// Force kill if still running
+	if IsProcessRunning(inst.PID) {
+		syscall.Kill(-pgid, syscall.SIGKILL)
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// Reap any zombie processes by trying to wait
+	// This is best-effort since we may not be the parent
+	process, _ := os.FindProcess(inst.PID)
+	if process != nil {
+		process.Wait()
+	}
 
 	inst.Status = "stopped"
 	inst.PID = 0
