@@ -19,6 +19,8 @@ type Instance struct {
 	Status    string            `json:"status"`    // stopped|starting|running|stopping|error
 	Resources map[string]string `json:"resources"` // resource_type -> value
 	Started   int64             `json:"started"`   // Unix timestamp
+	Cwd       string            `json:"cwd,omitempty"`       // Working directory
+	Managed   bool              `json:"managed"`             // true=can stop/restart, false=monitor only
 	Error     string            `json:"error,omitempty"`
 }
 
@@ -126,9 +128,26 @@ func StartProcess(state *State, template *Template, name string, vars map[string
 	inst.PID = proc.Process.Pid
 	inst.Status = "running"
 	inst.Started = time.Now().Unix()
+	inst.Managed = true // Processes started by us are managed
+
+	// Capture working directory
+	if cwd, err := os.Getwd(); err == nil {
+		inst.Cwd = cwd
+	}
 
 	state.Instances[name] = inst
 	state.Save()
+
+	// Start a goroutine to wait for the process and reap it
+	go func() {
+		proc.Wait() // This reaps the zombie when process exits
+		// Process has exited, update status if instance still exists
+		if inst, exists := state.Instances[name]; exists && inst.PID == proc.Process.Pid {
+			inst.Status = "stopped"
+			inst.PID = 0
+			state.Save()
+		}
+	}()
 
 	return inst, nil
 }
@@ -141,30 +160,193 @@ func StopProcess(state *State, inst *Instance) error {
 
 	inst.Status = "stopping"
 
-	// Find and kill process
-	process, err := os.FindProcess(inst.PID)
+	// Kill the entire process group (negative PID)
+	// Since we started with Setpgid:true, we need to kill the group
+	pgid := inst.PID
+	err := syscall.Kill(-pgid, syscall.SIGTERM)
 	if err != nil {
-		inst.Status = "stopped"
-		inst.PID = 0
-		state.Save()
-		return nil // Process doesn't exist, consider it stopped
+		// If process group kill fails, try individual process
+		process, err := os.FindProcess(inst.PID)
+		if err != nil {
+			inst.Status = "stopped"
+			inst.PID = 0
+			state.Save()
+			return nil
+		}
+		process.Signal(syscall.SIGTERM)
 	}
 
-	// Try graceful shutdown first (SIGTERM)
-	err = process.Signal(os.Interrupt)
-	if err != nil {
-		// Force kill if graceful shutdown fails (SIGKILL)
-		process.Kill()
+	// Wait up to 2 seconds for graceful shutdown
+	for i := 0; i < 20; i++ {
+		if !IsProcessRunning(inst.PID) {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 
-	// Wait a bit for process to exit
-	time.Sleep(100 * time.Millisecond)
+	// Force kill if still running
+	if IsProcessRunning(inst.PID) {
+		syscall.Kill(-pgid, syscall.SIGKILL)
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// Reap any zombie processes by trying to wait
+	// This is best-effort since we may not be the parent
+	process, _ := os.FindProcess(inst.PID)
+	if process != nil {
+		process.Wait()
+	}
 
 	inst.Status = "stopped"
 	inst.PID = 0
 	state.Save()
 
 	return nil
+}
+
+// RestartProcess restarts a stopped instance with the same resources and command
+func RestartProcess(state *State, inst *Instance) error {
+	// Instance must be stopped
+	if inst.Status != "stopped" {
+		return fmt.Errorf("instance %s is not stopped (status: %s)", inst.Name, inst.Status)
+	}
+
+	// Try to re-claim the same resources
+	for rtype, value := range inst.Resources {
+		// Check if resource type still exists
+		rt := state.Types[rtype]
+		if rt == nil {
+			return fmt.Errorf("resource type %s no longer exists", rtype)
+		}
+
+		// Check if resource value is available
+		if !CheckResource(rt, value) {
+			return fmt.Errorf("resource %s=%s no longer available", rtype, value)
+		}
+
+		// Claim it
+		state.ClaimResource(rtype, value, inst.Name)
+	}
+
+	// Start the process with the stored command
+	parts := strings.Fields(inst.Command)
+	if len(parts) == 0 {
+		state.ReleaseResources(inst.Name)
+		return fmt.Errorf("empty command")
+	}
+
+	proc := exec.Command(parts[0], parts[1:]...)
+	proc.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true, // Create new process group
+	}
+
+	if err := proc.Start(); err != nil {
+		state.ReleaseResources(inst.Name)
+		inst.Status = "error"
+		inst.Error = fmt.Sprintf("failed to restart: %v", err)
+		state.Save()
+		return err
+	}
+
+	inst.PID = proc.Process.Pid
+	inst.Status = "running"
+	inst.Started = time.Now().Unix()
+	inst.Error = ""
+	state.Save()
+
+	// Reap zombie when process exits
+	go func() {
+		proc.Wait()
+		if inst, exists := state.Instances[inst.Name]; exists && inst.PID == proc.Process.Pid {
+			inst.Status = "stopped"
+			inst.PID = 0
+			state.Save()
+		}
+	}()
+
+	return nil
+}
+
+// MonitorProcess adds an existing process to vibeprocess as monitored (not managed)
+func MonitorProcess(state *State, pid int, name string) (*Instance, error) {
+	// Check if instance name already exists
+	if state.Instances[name] != nil {
+		return nil, fmt.Errorf("instance %s already exists", name)
+	}
+
+	// Check if process exists
+	if !IsProcessRunning(pid) {
+		return nil, fmt.Errorf("process %d not running", pid)
+	}
+
+	// Read process info from /proc
+	cmdline := readCmdline(pid)
+	if cmdline == "" {
+		return nil, fmt.Errorf("cannot read process %d", pid)
+	}
+
+	cwd := readCwd(pid)
+
+	// Detect resources (ports)
+	pidPorts := scanListeningPorts()
+	ports := pidPorts[pid]
+	resources := detectResourcesFromPorts(ports)
+
+	// Check if we can manage this process (send signals to it)
+	managed := canManageProcess(pid)
+
+	inst := &Instance{
+		Name:      name,
+		Command:   cmdline,
+		PID:       pid,
+		Status:    "running",
+		Resources: resources,
+		Cwd:       cwd,
+		Managed:   managed, // true if we can send signals, false if different user
+		Started:   time.Now().Unix(),
+	}
+
+	// Claim resources (monitored processes DO use resources!)
+	for rtype, value := range resources {
+		state.ClaimResource(rtype, value, name)
+	}
+
+	state.Instances[name] = inst
+	state.Save()
+
+	// Start monitoring goroutine to detect when process exits
+	go func() {
+		for {
+			time.Sleep(2 * time.Second)
+			if !IsProcessRunning(pid) {
+				if inst, exists := state.Instances[name]; exists && inst.PID == pid {
+					inst.Status = "stopped"
+					inst.PID = 0
+					state.Save()
+				}
+				break
+			}
+		}
+	}()
+
+	return inst, nil
+}
+
+// canManageProcess checks if we have permission to send signals to a process
+func canManageProcess(pid int) bool {
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+
+	// Try to send signal 0 (null signal) to test permissions
+	// If we get EPERM, we can't manage it. If we get no error, we can.
+	err = process.Signal(syscall.Signal(0))
+	if err != nil {
+		// EPERM means process exists but we can't signal it
+		return false
+	}
+	return true
 }
 
 // IsProcessRunning checks if a process is still running
