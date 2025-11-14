@@ -1,0 +1,5 @@
+# Build artifacts
+vp
+
+# State directory
+.vibeprocess/
