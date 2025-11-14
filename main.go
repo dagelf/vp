@@ -28,6 +28,8 @@ func main() {
 		handleStop(args)
 	case "restart":
 		handleRestart(args)
+	case "delete":
+		handleDelete(args)
 	case "ps":
 		listInstances()
 	case "serve":
@@ -44,7 +46,7 @@ func main() {
 		handleInspect(args)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", cmd)
-		fmt.Fprintf(os.Stderr, "Commands: start, stop, restart, ps, serve, template, resource-type\n")
+		fmt.Fprintf(os.Stderr, "Commands: start, stop, restart, delete, ps, serve, template, resource-type, discover, discover-port, inspect\n")
 		os.Exit(1)
 	}
 }
@@ -102,10 +104,37 @@ func handleStop(args []string) {
 	}
 
 	state.ReleaseResources(name)
-	delete(state.Instances, name)
 	state.Save()
 
 	fmt.Printf("Stopped %s\n", name)
+}
+
+func handleDelete(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintf(os.Stderr, "Usage: vp delete <name>\n")
+		os.Exit(1)
+	}
+
+	name := args[0]
+	inst := state.Instances[name]
+	if inst == nil {
+		fmt.Fprintf(os.Stderr, "Instance not found: %s\n", name)
+		os.Exit(1)
+	}
+
+	// Stop the process if it's running
+	if inst.Status == "running" {
+		if err := StopProcess(state, inst); err != nil {
+			fmt.Fprintf(os.Stderr, "Error stopping process: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	state.ReleaseResources(name)
+	delete(state.Instances, name)
+	state.Save()
+
+	fmt.Printf("Deleted %s\n", name)
 }
 
 func handleRestart(args []string) {
