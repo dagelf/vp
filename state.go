@@ -1,0 +1,141 @@
+package main
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+)
+
+// State holds all application state
+type State struct {
+	Instances map[string]*Instance       `json:"instances"` // name -> Instance
+	Templates map[string]*Template       `json:"templates"` // id -> Template
+	Resources map[string]*Resource       `json:"resources"` // type:value -> Resource
+	Counters  map[string]int             `json:"counters"`  // counter_name -> current
+	Types     map[string]*ResourceType   `json:"types"`     // Resource type definitions
+}
+
+// LoadState loads state from ~/.vibeprocess/state.json
+func LoadState() *State {
+	homeDir, _ := os.UserHomeDir()
+	stateFile := filepath.Join(homeDir, ".vibeprocess", "state.json")
+
+	data, err := os.ReadFile(stateFile)
+	if err != nil {
+		// Initialize with defaults
+		return &State{
+			Instances: make(map[string]*Instance),
+			Templates: loadDefaultTemplates(),
+			Resources: make(map[string]*Resource),
+			Counters:  make(map[string]int),
+			Types:     DefaultResourceTypes(),
+		}
+	}
+
+	var s State
+	if err := json.Unmarshal(data, &s); err != nil {
+		// Return defaults on parse error
+		return &State{
+			Instances: make(map[string]*Instance),
+			Templates: loadDefaultTemplates(),
+			Resources: make(map[string]*Resource),
+			Counters:  make(map[string]int),
+			Types:     DefaultResourceTypes(),
+		}
+	}
+
+	// Merge with default types (in case new defaults were added)
+	if s.Types == nil {
+		s.Types = make(map[string]*ResourceType)
+	}
+	for name, rt := range DefaultResourceTypes() {
+		if s.Types[name] == nil {
+			s.Types[name] = rt
+		}
+	}
+
+	// Ensure maps are initialized
+	if s.Instances == nil {
+		s.Instances = make(map[string]*Instance)
+	}
+	if s.Templates == nil {
+		s.Templates = loadDefaultTemplates()
+	}
+	if s.Resources == nil {
+		s.Resources = make(map[string]*Resource)
+	}
+	if s.Counters == nil {
+		s.Counters = make(map[string]int)
+	}
+
+	return &s
+}
+
+// Save persists state to ~/.vibeprocess/state.json
+func (s *State) Save() error {
+	homeDir, _ := os.UserHomeDir()
+	stateDir := filepath.Join(homeDir, ".vibeprocess")
+
+	// Create directory if it doesn't exist
+	if err := os.MkdirAll(stateDir, 0755); err != nil {
+		return err
+	}
+
+	stateFile := filepath.Join(stateDir, "state.json")
+	data, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(stateFile, data, 0600)
+}
+
+// ClaimResource claims a resource for an instance
+func (s *State) ClaimResource(rtype, value, owner string) {
+	key := rtype + ":" + value
+	s.Resources[key] = &Resource{
+		Type:  rtype,
+		Value: value,
+		Owner: owner,
+	}
+}
+
+// ReleaseResources releases all resources owned by an instance
+func (s *State) ReleaseResources(owner string) {
+	for key, res := range s.Resources {
+		if res.Owner == owner {
+			delete(s.Resources, key)
+		}
+	}
+}
+
+// loadDefaultTemplates returns default templates
+func loadDefaultTemplates() map[string]*Template {
+	return map[string]*Template{
+		"postgres": {
+			ID:        "postgres",
+			Label:     "PostgreSQL Database",
+			Command:   "postgres -D ${datadir} -p ${tcpport}",
+			Resources: []string{"tcpport", "datadir"},
+			Vars: map[string]string{
+				"datadir": "/tmp/pgdata",
+			},
+		},
+		"node-express": {
+			ID:        "node-express",
+			Label:     "Node.js Express Server",
+			Command:   "node server.js --port ${tcpport}",
+			Resources: []string{"tcpport"},
+			Vars:      map[string]string{},
+		},
+		"qemu": {
+			ID:        "qemu",
+			Label:     "QEMU Virtual Machine",
+			Command:   "qemu-system-x86_64 -vnc :${vncport} -serial tcp::${serialport},server,nowait ${args}",
+			Resources: []string{"vncport", "serialport"},
+			Vars: map[string]string{
+				"args": "-m 2G",
+			},
+		},
+	}
+}
