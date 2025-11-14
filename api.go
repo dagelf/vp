@@ -94,10 +94,27 @@ func handleInstances(w http.ResponseWriter, r *http.Request) {
 			}
 
 			state.ReleaseResources(req.InstanceID)
+			state.Save()
+
+			json.NewEncoder(w).Encode(inst)
+
+		case "delete":
+			inst := state.Instances[req.InstanceID]
+			if inst == nil {
+				http.Error(w, "instance not found", http.StatusNotFound)
+				return
+			}
+
+			// Stop the process if it's running
+			if inst.Status == "running" {
+				StopProcess(state, inst)
+			}
+
+			state.ReleaseResources(req.InstanceID)
 			delete(state.Instances, req.InstanceID)
 			state.Save()
 
-			json.NewEncoder(w).Encode(map[string]string{"status": "stopped"})
+			json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
 
 		case "restart":
 			inst := state.Instances[req.InstanceID]
@@ -244,26 +261,6 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func handleDiscover(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	if r.Method != "GET" {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Parse query parameters
-	portsOnly := r.URL.Query().Get("ports_only") != "false"
-
-	processes, err := DiscoverProcesses(state, portsOnly)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	json.NewEncoder(w).Encode(processes)
-}
-
 func handleMonitor(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -291,39 +288,24 @@ func handleMonitor(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(inst)
 }
 
-// Helper function to get path parameter
-func getPathParam(path, prefix string) string {
-	if !strings.HasPrefix(path, prefix) {
-		return ""
-	}
-	return strings.TrimPrefix(path, prefix)
-}
-
 func handleDiscover(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	if r.Method != "POST" {
+	if r.Method != "GET" {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	var req struct {
-		PID  int    `json:"pid"`
-		Name string `json:"name"`
-	}
+	// Parse query parameters
+	portsOnly := r.URL.Query().Get("ports_only") != "false"
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	inst, err := DiscoverAndImportProcess(state, req.PID, req.Name)
+	processes, err := DiscoverProcesses(state, portsOnly)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	json.NewEncoder(w).Encode(inst)
+	json.NewEncoder(w).Encode(processes)
 }
 
 func handleDiscoverPort(w http.ResponseWriter, r *http.Request) {

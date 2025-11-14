@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -284,18 +285,25 @@ func MonitorProcess(state *State, pid int, name string) (*Instance, error) {
 		return nil, fmt.Errorf("process %d not running", pid)
 	}
 
-	// Read process info from /proc
-	cmdline := readCmdline(pid)
+	// Read process info using existing functionality
+	procInfo, err := ReadProcessInfo(pid)
+	if err != nil {
+		return nil, fmt.Errorf("cannot read process %d: %w", pid, err)
+	}
+
+	cmdline := procInfo.Cmdline
 	if cmdline == "" {
 		return nil, fmt.Errorf("cannot read process %d", pid)
 	}
 
-	cwd := readCwd(pid)
+	cwd := procInfo.Cwd
 
 	// Detect resources (ports)
-	pidPorts := scanListeningPorts()
-	ports := pidPorts[pid]
-	resources := detectResourcesFromPorts(ports)
+	resources := make(map[string]string)
+	if len(procInfo.Ports) > 0 {
+		// Just record the first port as tcpport
+		resources["tcpport"] = fmt.Sprintf("%d", procInfo.Ports[0])
+	}
 
 	// Check if we can manage this process (send signals to it)
 	managed := canManageProcess(pid)
@@ -439,4 +447,67 @@ func DiscoverAndImportProcessOnPort(state *State, port int, name string) (*Insta
 	state.Save()
 
 	return inst, nil
+}
+
+// DiscoverProcesses discovers running processes on the system
+// If portsOnly is true, only returns processes listening on ports
+func DiscoverProcesses(state *State, portsOnly bool) ([]map[string]interface{}, error) {
+	var result []map[string]interface{}
+
+	// Read all PIDs from /proc
+	procDir, err := os.Open("/proc")
+	if err != nil {
+		return nil, err
+	}
+	defer procDir.Close()
+
+	entries, err := procDir.Readdirnames(-1)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, entry := range entries {
+		// Check if entry is a PID (numeric)
+		pid, err := strconv.Atoi(entry)
+		if err != nil {
+			continue
+		}
+
+		// Skip if already monitored
+		alreadyMonitored := false
+		for _, inst := range state.Instances {
+			if inst.PID == pid {
+				alreadyMonitored = true
+				break
+			}
+		}
+		if alreadyMonitored {
+			continue
+		}
+
+		// Read process info
+		procInfo, err := ReadProcessInfo(pid)
+		if err != nil {
+			continue // Skip processes we can't read
+		}
+
+		// If portsOnly, skip processes not listening on ports
+		if portsOnly && len(procInfo.Ports) == 0 {
+			continue
+		}
+
+		// Build result entry
+		entry := map[string]interface{}{
+			"pid":     procInfo.PID,
+			"name":    procInfo.Name,
+			"cmdline": procInfo.Cmdline,
+			"cwd":     procInfo.Cwd,
+			"exe":     procInfo.Exe,
+			"ports":   procInfo.Ports,
+		}
+
+		result = append(result, entry)
+	}
+
+	return result, nil
 }

@@ -326,7 +326,8 @@
                     actions.push(`<button class="success small" onclick="restartInstance('${i.name}')">Restart</button>`);
                 }
 
-                actions.push(`<button class="small" onclick="copyTemplateCommand('${i.name}')">📋 Copy Template Cmd</button>`);
+                actions.push(`<button class="small" onclick="addAsTemplate('${i.name}')">➕ Add as Template</button>`);
+                actions.push(`<button class="danger small" onclick="deleteInstance('${i.name}')">🗑️ Delete</button>`);
 
                 return `
                     <tr data-instance="${i.name}">
@@ -654,7 +655,26 @@
             }
         }
 
-        function copyTemplateCommand(name) {
+        async function deleteInstance(name) {
+            if (!confirm(`Delete instance "${name}"? This cannot be undone.`)) return;
+
+            try {
+                await fetch('/api/instances', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        action: 'delete',
+                        instance_id: name
+                    })
+                });
+
+                loadInstances();
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        }
+
+        async function addAsTemplate(name) {
             const instance = instances[name];
             if (!instance) {
                 alert('Instance not found');
@@ -662,26 +682,35 @@
             }
 
             // Build the template JSON for this instance
+            const templateId = prompt('Template ID:', instance.name + '-template');
+            if (!templateId) return;
+
             const template = {
-                id: instance.name + '-template',
+                id: templateId,
                 label: 'Template from ' + instance.name,
                 command: instance.command,
                 resources: Object.keys(instance.resources || {}),
                 vars: instance.vars || {}
             };
 
-            const json = JSON.stringify(template, null, 2);
-            const filename = `/tmp/${instance.name}-template.json`;
+            try {
+                const res = await fetch('/api/templates', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(template)
+                });
 
-            const command = `echo '${json}' > ${filename} && ./vp template add ${filename}`;
+                if (!res.ok) {
+                    const err = await res.text();
+                    alert('Error adding template: ' + err);
+                    return;
+                }
 
-            // Copy to clipboard
-            navigator.clipboard.writeText(command).then(() => {
-                alert(`Copied to clipboard!\n\nPaste in terminal to add as template:\n\n${command}`);
-            }).catch(() => {
-                // Fallback if clipboard fails
-                prompt('Copy this command:', command);
-            });
+                alert(`Template "${templateId}" added successfully!`);
+                loadTemplates();
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
         }
 
         function showAddTemplateForm() {
