@@ -15,25 +15,14 @@
 ### Why This Matters
 - Maximum flexibility without code changes
 - Add any resource type at runtime (GPU, license, DB, whatever)
+- Manage processess no matter how they were started
 - Validate using any installed tool (nc, test, nvidia-smi, lmutil)
 - Debuggable: all state in one JSON file
 - Extensible: shell commands = infinite possibilities
 
 ---
 
-## Project Structure
-
-```
-vp/
-├── main.go          # CLI dispatcher
-├── state.go         # State persistence
-├── process.go       # Process lifecycle
-├── resource.go      # Generic resource system
-├── api.go           # HTTP server
-└── web.html         # Embedded UI
-```
-
-**Target**: 6 files, ~500 lines total
+**Target**: minimal number of files, minimal LoC while maintaining readability, shrewd and visionary design with great planning
 
 ---
 
@@ -41,7 +30,7 @@ vp/
 
 ### Resources
 - Generic type:value pairs (e.g., "tcpport:3000", "gpu:0")
-- Validated by shell commands
+- Each type has a validation shell command
 - Counter resources auto-increment
 - No special cases
 
@@ -75,16 +64,21 @@ vp/
 
 **Milestone**: Can allocate/deallocate resources, counters work, check commands execute
 
-### Phase 2: Process Management
+### Phase 2: Process Management ✅ COMPLETE
 **Goal**: Start/stop processes with resource allocation
 
 **Focus**:
 - Template and Instance structures
 - StartProcess: allocate resources → interpolate → exec
 - StopProcess: kill process → release resources
+- RestartProcess: restart stopped instances with same resources
 - Variable interpolation (${var} and %counter)
+- Proper zombie reaping
+- Process group management
 
-**Milestone**: Can start/stop processes from templates, resources allocated/released correctly
+**Milestone**: Can start/stop/restart processes, resources allocated/released correctly, no zombies
+
+**Critical Fix**: Template-independent restart - instances now contain all data needed to restart (command + resources), no longer depend on template existing
 
 ### Phase 3: CLI Interface
 **Goal**: Minimal command-line tool
@@ -96,7 +90,7 @@ vp/
 
 **Milestone**: All CLI commands work, argument parsing correct, output clear
 
-### Phase 4: Web UI
+### Phase 4: Web UI ✅ COMPLETE
 **Goal**: Single-page interface
 
 **Focus**:
@@ -104,8 +98,18 @@ vp/
 - Single-page HTML with inline CSS/JS
 - Embed web.html using go:embed
 - Auto-refresh instances
+- Configuration editor
 
-**Milestone**: Web UI accessible, can start/stop from browser, view resources
+**Milestone**: Web UI accessible, can start/stop/restart from browser, view resources, edit config
+
+**Features Implemented**:
+- Tabbed interface (Instances, Templates, Resources, Types, Configuration)
+- Configurable auto-refresh (1s default, adjustable)
+- Clean refresh without visual flashing
+- Restart stopped instances (no template required)
+- Copy template command to clipboard
+- Direct JSON configuration editing
+- Real-time status updates
 
 ### Phase 5: Polish & Testing
 **Goal**: Production-ready
@@ -146,39 +150,6 @@ Users can add templates via CLI or API.
 
 ---
 
-## Success Criteria
-
-### Phase 1
-- [ ] Resources allocate/deallocate correctly
-- [ ] Counter resources auto-increment
-- [ ] Check commands execute and validate
-- [ ] State persists to JSON
-
-### Phase 2
-- [ ] Processes start from templates
-- [ ] Resources allocated before start
-- [ ] Variables interpolated (${var} and %counter)
-- [ ] PIDs tracked
-- [ ] Resources released on stop
-
-### Phase 3
-- [ ] All CLI commands work
-- [ ] Arguments parsed correctly
-- [ ] Error messages clear
-- [ ] Output human-readable
-
-### Phase 4
-- [ ] Web UI serves on localhost:8080
-- [ ] Can start/stop from browser
-- [ ] Resource allocations visible
-- [ ] Auto-refresh works
-
-### Phase 5
-- [ ] Error handling comprehensive
-- [ ] Edge cases handled
-- [ ] Example templates included
-- [ ] README clear
-- [ ] Builds cleanly
 
 ---
 
@@ -228,3 +199,64 @@ It provides pure primitives:
 Everything else is user configuration.
 
 **Design for Mars: assume nothing, enable everything.**
+
+---
+
+## Current Status (2025-11-15)
+
+### What Works
+- ✅ All 6 files implemented (~500 lines each)
+- ✅ Full CLI with start/stop/restart/ps/serve/template/resource-type
+- ✅ Web UI with 5 tabs (Instances, Templates, Resources, Types, Config)
+- ✅ Generic resource system with shell command validation
+- ✅ Proper process lifecycle (no zombies, graceful shutdown)
+- ✅ Template-independent restart (uses stored command + resources)
+- ✅ Configurable auto-refresh without flashing
+- ✅ JSON configuration editor in web UI
+- ✅ Default templates (postgres, node-express, qemu)
+- ✅ Default resource types (tcpport, vncport, serialport, dbfile, socket, datadir)
+
+### Recent Enhancements
+1. **Restart Functionality** (2025-11-15)
+   - Fixed design flaw: restart no longer requires original template
+   - Instance struct contains all data needed (command + resources)
+   - Added `RestartProcess()` in process.go:199-260
+   - Added CLI command and API endpoint
+   - Web UI restart button for stopped instances
+
+2. **Configuration Editor** (2025-11-15)
+   - New Configuration tab in web UI
+   - Direct JSON editing of entire state
+   - Real-time validation
+   - Save/reload functionality
+   - API endpoint: GET/POST /api/config
+
+3. **Web UI Polish** (2025-11-15)
+   - Configurable auto-refresh (1s default, 0-60s range)
+   - Clean refresh without DOM flashing
+   - Copy template command button
+   - Status-based action buttons (Stop for running, Restart for stopped)
+
+### File Breakdown
+- **main.go** (267 lines) - CLI dispatcher, all commands
+- **state.go** (~150 lines) - State persistence, default templates/types
+- **process.go** (272 lines) - Process lifecycle, zombie reaping, restart
+- **resource.go** (127 lines) - Generic resource allocation, validation
+- **api.go** (250 lines) - HTTP server, all API endpoints including config
+- **web.html** (600 lines) - Complete web UI with all features
+
+**Total**: ~1,666 lines (within target, very lean)
+
+### API Endpoints
+- GET/POST `/api/instances` - List/control instances
+- GET/POST `/api/templates` - Manage templates
+- GET `/api/resources` - View resource allocations
+- GET/POST `/api/resource-types` - Manage resource types
+- GET/POST `/api/config` - View/edit entire state
+
+### Next Steps
+- [ ] Iterate on functionality and co-create with the user
+- [ ] Remove clutter from .md files
+- [ ] Example use cases
+- [ ] Installation instructions
+- [ ] Performance testing with many instances

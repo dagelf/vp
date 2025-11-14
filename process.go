@@ -196,6 +196,69 @@ func StopProcess(state *State, inst *Instance) error {
 	return nil
 }
 
+// RestartProcess restarts a stopped instance with the same resources and command
+func RestartProcess(state *State, inst *Instance) error {
+	// Instance must be stopped
+	if inst.Status != "stopped" {
+		return fmt.Errorf("instance %s is not stopped (status: %s)", inst.Name, inst.Status)
+	}
+
+	// Try to re-claim the same resources
+	for rtype, value := range inst.Resources {
+		// Check if resource type still exists
+		rt := state.Types[rtype]
+		if rt == nil {
+			return fmt.Errorf("resource type %s no longer exists", rtype)
+		}
+
+		// Check if resource value is available
+		if !CheckResource(rt, value) {
+			return fmt.Errorf("resource %s=%s no longer available", rtype, value)
+		}
+
+		// Claim it
+		state.ClaimResource(rtype, value, inst.Name)
+	}
+
+	// Start the process with the stored command
+	parts := strings.Fields(inst.Command)
+	if len(parts) == 0 {
+		state.ReleaseResources(inst.Name)
+		return fmt.Errorf("empty command")
+	}
+
+	proc := exec.Command(parts[0], parts[1:]...)
+	proc.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true, // Create new process group
+	}
+
+	if err := proc.Start(); err != nil {
+		state.ReleaseResources(inst.Name)
+		inst.Status = "error"
+		inst.Error = fmt.Sprintf("failed to restart: %v", err)
+		state.Save()
+		return err
+	}
+
+	inst.PID = proc.Process.Pid
+	inst.Status = "running"
+	inst.Started = time.Now().Unix()
+	inst.Error = ""
+	state.Save()
+
+	// Reap zombie when process exits
+	go func() {
+		proc.Wait()
+		if inst, exists := state.Instances[inst.Name]; exists && inst.PID == proc.Process.Pid {
+			inst.Status = "stopped"
+			inst.PID = 0
+			state.Save()
+		}
+	}()
+
+	return nil
+}
+
 // IsProcessRunning checks if a process is still running
 func IsProcessRunning(pid int) bool {
 	process, err := os.FindProcess(pid)
