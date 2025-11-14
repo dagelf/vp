@@ -1,6 +1,8 @@
+# State directory
+=======
 # Binaries
-vp
-vp.exe
+#vp
+#vp.exe
 
 # Go workspace
 *.swp
