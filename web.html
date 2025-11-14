@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vibeprocess Manager</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+        h1 { margin-bottom: 10px; }
+        h2 { margin-top: 30px; margin-bottom: 15px; }
+        .subtitle { color: #666; margin-bottom: 30px; }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #ddd;
+        }
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border: none;
+            background: none;
+            font-size: 16px;
+        }
+        .tab.active {
+            border-bottom: 3px solid #007bff;
+            font-weight: 600;
+        }
+
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        table {
+            width: 100%;
+            background: white;
+            border-collapse: collapse;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        th {
+            background: #333;
+            color: white;
+            font-weight: 600;
+        }
+        tr:hover { background: #f9f9f9; }
+
+        .status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .status.running { background: #28a745; color: white; }
+        .status.stopped { background: #6c757d; color: white; }
+        .status.starting { background: #ffc107; color: black; }
+        .status.error { background: #dc3545; color: white; }
+
+        button {
+            padding: 8px 16px;
+            margin: 4px;
+            cursor: pointer;
+            border: 1px solid #ddd;
+            background: white;
+            border-radius: 4px;
+        }
+        button:hover { background: #f0f0f0; }
+        button.primary {
+            background: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+        button.primary:hover { background: #0056b3; }
+        button.danger {
+            background: #dc3545;
+            color: white;
+            border-color: #dc3545;
+        }
+        button.danger:hover { background: #c82333; }
+
+        .card {
+            background: white;
+            padding: 20px;
+            margin: 10px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        .code {
+            font-family: monospace;
+            background: #f5f5f5;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 13px;
+        }
+
+        .resource-type {
+            margin-bottom: 10px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }
+    </style>
+</head>
+<body>
+    <h1>Vibeprocess Manager</h1>
+    <p class="subtitle">Firmware-style process orchestration with zero assumptions</p>
+
+    <div class="tabs">
+        <button class="tab active" onclick="showTab('instances')">Instances</button>
+        <button class="tab" onclick="showTab('templates')">Templates</button>
+        <button class="tab" onclick="showTab('resources')">Resources</button>
+        <button class="tab" onclick="showTab('types')">Resource Types</button>
+    </div>
+
+    <!-- Instances Tab -->
+    <div id="instances-tab" class="tab-content active">
+        <div style="margin-bottom: 20px;">
+            <button class="primary" onclick="showStartForm()">+ Start Instance</button>
+            <button onclick="loadInstances()">↻ Refresh</button>
+        </div>
+        <table id="instances-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Status</th>
+                    <th>PID</th>
+                    <th>Command</th>
+                    <th>Resources</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="instances-list"></tbody>
+        </table>
+    </div>
+
+    <!-- Templates Tab -->
+    <div id="templates-tab" class="tab-content">
+        <div style="margin-bottom: 20px;">
+            <button class="primary" onclick="showAddTemplateForm()">+ Add Template</button>
+        </div>
+        <div id="templates-list"></div>
+    </div>
+
+    <!-- Resources Tab -->
+    <div id="resources-tab" class="tab-content">
+        <div id="resources-list"></div>
+    </div>
+
+    <!-- Resource Types Tab -->
+    <div id="types-tab" class="tab-content">
+        <div style="margin-bottom: 20px;">
+            <button class="primary" onclick="showAddResourceTypeForm()">+ Add Resource Type</button>
+        </div>
+        <div id="types-list"></div>
+    </div>
+
+    <script>
+        let instances = {};
+        let templates = {};
+        let resources = {};
+        let types = {};
+
+        async function loadInstances() {
+            const res = await fetch('/api/instances');
+            instances = await res.json() || {};
+
+            const tbody = document.getElementById('instances-list');
+            if (Object.keys(instances).length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;">No instances running</td></tr>';
+                return;
+            }
+
+            const html = Object.values(instances).map(i => `
+                <tr>
+                    <td><strong>${i.name}</strong></td>
+                    <td><span class="status ${i.status}">${i.status}</span></td>
+                    <td>${i.pid || 'N/A'}</td>
+                    <td><span class="code">${truncate(i.command, 60)}</span></td>
+                    <td>${formatResources(i.resources)}</td>
+                    <td>
+                        ${i.status === 'running' ?
+                            `<button class="danger" onclick="stopInstance('${i.name}')">Stop</button>` :
+                            ''}
+                    </td>
+                </tr>
+            `).join('');
+            tbody.innerHTML = html;
+        }
+
+        async function loadTemplates() {
+            const res = await fetch('/api/templates');
+            templates = await res.json() || {};
+
+            const list = document.getElementById('templates-list');
+            const html = Object.values(templates).map(t => `
+                <div class="card">
+                    <h3>${t.label || t.id}</h3>
+                    <p><strong>ID:</strong> ${t.id}</p>
+                    <p><strong>Command:</strong> <span class="code">${t.command}</span></p>
+                    <p><strong>Resources:</strong> ${(t.resources || []).join(', ')}</p>
+                    <p><strong>Default Vars:</strong> ${JSON.stringify(t.vars || {})}</p>
+                    <button class="primary" onclick="startFromTemplate('${t.id}')">Create Instance</button>
+                </div>
+            `).join('');
+            list.innerHTML = html;
+        }
+
+        async function loadResources() {
+            const res = await fetch('/api/resources');
+            resources = await res.json() || {};
+
+            const list = document.getElementById('resources-list');
+            if (Object.keys(resources).length === 0) {
+                list.innerHTML = '<div class="card"><p style="color:#999;">No resources allocated</p></div>';
+                return;
+            }
+
+            const html = Object.entries(resources).map(([type, resList]) => `
+                <div class="card">
+                    <h3>${type}</h3>
+                    ${resList.map(r => `
+                        <div class="resource-type">
+                            <strong>${r.value}</strong> → ${r.owner}
+                        </div>
+                    `).join('')}
+                </div>
+            `).join('');
+            list.innerHTML = html;
+        }
+
+        async function loadResourceTypes() {
+            const res = await fetch('/api/resource-types');
+            types = await res.json() || {};
+
+            const list = document.getElementById('types-list');
+            const html = Object.values(types).map(t => `
+                <div class="card">
+                    <h3>${t.name}</h3>
+                    <p><strong>Check:</strong> <span class="code">${t.check || '(none)'}</span></p>
+                    <p><strong>Counter:</strong> ${t.counter ? 'Yes' : 'No'}</p>
+                    ${t.counter ? `<p><strong>Range:</strong> ${t.start} - ${t.end}</p>` : ''}
+                </div>
+            `).join('');
+            list.innerHTML = html;
+        }
+
+        function showTab(tabName) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+            event.target.classList.add('active');
+            document.getElementById(tabName + '-tab').classList.add('active');
+
+            if (tabName === 'instances') loadInstances();
+            if (tabName === 'templates') loadTemplates();
+            if (tabName === 'resources') loadResources();
+            if (tabName === 'types') loadResourceTypes();
+        }
+
+        function startFromTemplate(templateId) {
+            const name = prompt('Instance name:');
+            if (!name) return;
+
+            const template = templates[templateId];
+            const vars = {};
+
+            // Ask for any default vars
+            if (template.vars) {
+                for (const [key, defaultVal] of Object.entries(template.vars)) {
+                    const val = prompt(`${key} (default: ${defaultVal}):`);
+                    if (val) vars[key] = val;
+                }
+            }
+
+            startInstance(templateId, name, vars);
+        }
+
+        function showStartForm() {
+            const templateId = prompt('Template ID:');
+            if (!templateId) return;
+            startFromTemplate(templateId);
+        }
+
+        async function startInstance(templateId, name, vars) {
+            try {
+                const res = await fetch('/api/instances', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        action: 'start',
+                        template: templateId,
+                        name: name,
+                        vars: vars || {}
+                    })
+                });
+
+                if (!res.ok) {
+                    const err = await res.text();
+                    alert('Error: ' + err);
+                    return;
+                }
+
+                loadInstances();
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        }
+
+        async function stopInstance(name) {
+            if (!confirm(`Stop instance "${name}"?`)) return;
+
+            try {
+                await fetch('/api/instances', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        action: 'stop',
+                        instance_id: name
+                    })
+                });
+
+                loadInstances();
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        }
+
+        function showAddTemplateForm() {
+            const json = prompt('Paste template JSON:');
+            if (!json) return;
+
+            try {
+                fetch('/api/templates', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: json
+                }).then(() => loadTemplates());
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        }
+
+        function showAddResourceTypeForm() {
+            const name = prompt('Resource type name:');
+            if (!name) return;
+
+            const check = prompt('Check command (use ${value}):');
+            const counter = confirm('Is this a counter resource?');
+            let start = 0, end = 0;
+
+            if (counter) {
+                start = parseInt(prompt('Start value:')) || 0;
+                end = parseInt(prompt('End value:')) || 0;
+            }
+
+            fetch('/api/resource-types', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    name, check, counter, start, end
+                })
+            }).then(() => loadResourceTypes());
+        }
+
+        function formatResources(resources) {
+            if (!resources) return '';
+            return Object.entries(resources).map(([k, v]) =>
+                `<span class="code">${k}=${v}</span>`
+            ).join(' ');
+        }
+
+        function truncate(s, n) {
+            if (!s || s.length <= n) return s;
+            return s.substring(0, n) + '...';
+        }
+
+        // Auto-refresh instances
+        loadInstances();
+        setInterval(loadInstances, 5000);
+    </script>
+</body>
+</html>

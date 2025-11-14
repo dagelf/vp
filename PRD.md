@@ -2,7 +2,7 @@
 
 ## Vibeprocess Manager
 
-Vibeprocess Manager is a web-based process orchestration tool that simplifies the management of multiple interconnected processes. It provides an intuitive interface for creating reusable process templates, instantiating configured processes, monitoring resource allocation, and preventing port/resource conflicts. Think the Unix `ps` tool, modernized, with memory and intelligence.
+Vibeprocess Manager is a firmware-style process orchestration tool that provides pure primitives for process and resource management. It makes **zero assumptions** about what resources are or how they work - everything is user-defined through simple check commands. Think the Unix `ps` tool, modernized, with generic resource allocation and zero opinions.
 
 ### Current Pain Points
 
@@ -68,20 +68,37 @@ Create a unified interface that transforms process management from a manual, err
 
 **User Value**: Manage multiple configurations of the same service (e.g., "Dev DB" vs "Test DB") without manual reconfiguration.
 
-### 3. Resource Management
+### 3. Generic Resource Management
 
-**Description**: Intelligent tracking and allocation of system resources to prevent conflicts.
+**Description**: Zero-assumption resource tracking where resources are just type:value pairs validated by user-defined shell commands.
+
+**Core Philosophy**:
+- **No hardcoded resource types** - Ports, files, GPUs, licenses, databases are all just resources
+- **Validation via commands** - Check availability using any shell command (nc, test, nvidia-smi, lmutil, etc.)
+- **Counter resources** - Auto-increment counters (just a flag on resource type)
+- **User-extensible** - Add new resource types at runtime without code changes
 
 **Key Capabilities**:
-- Track port allocations across all instances
-- Monitor file/directory usage
-- Display PID assignments
-- Auto-detect resource conflicts before starting processes
-- Auto-increment port counters to find available ports
+- Define custom resource types with check commands
+- Auto-detect conflicts before starting processes (via check commands)
+- Auto-increment counters for sequential allocation (ports, VNC displays, etc.)
+- Track arbitrary resources (ports, files, GPUs, licenses, DB connections, etc.)
 - Filter resources by status (all, in use, available)
 - Show resource allocation history
 
-**User Value**: Eliminate "address already in use" errors and port collision headaches.
+**Built-in Resource Types** (examples, not limitations):
+- `tcpport` - TCP ports (check via `nc`)
+- `vncport` - VNC ports (check via `nc`)
+- `serialport` - Serial ports (check via `nc`)
+- `dbfile` - Database files (check via `test -f`)
+- `socket` - Unix sockets (check via `test -S`)
+
+**Custom Resource Examples**:
+- GPU allocation: `nvidia-smi -L | grep GPU-${value}`
+- License servers: `lmutil lmstat -c ${value} | grep "UP"`
+- Database connections: `psql -h ${value} -c "SELECT 1"`
+
+**User Value**: Manage ANY resource type without coding. Add GPU allocation? Just define a check command. Need license tracking? Add a resource type. Works for anything.
 
 ### 4. Performance Monitoring
 
@@ -130,133 +147,178 @@ Create a unified interface that transforms process management from a manual, err
 
 ### Technology Stack
 
-TBD. Minimal Dependencies. Simple architecture.
+**Ultra-Lean Firmware-Style**:
+- **Language**: Go (stdlib only, zero dependencies)
+- **Structure**: 6 files, ~500 lines total
+- **Storage**: Single JSON state file (~/.vibeprocess/state.json)
+- **Philosophy**: Pure mechanism, no policy
 
-### Data Models
+### Project Structure
+```
+vp/
+├── main.go          # CLI entry point (~80 lines)
+├── state.go         # State persistence (~100 lines)
+├── process.go       # Process lifecycle (~150 lines)
+├── resource.go      # Generic resource system (~100 lines)
+├── api.go           # HTTP server (~70 lines)
+└── web.html         # Embedded UI (single page)
+```
 
-NB Treat as a guideline
+### Core Data Structures
 
-**Template Interface**:
-```typescript
-{
-  id: string
-  label: string
-  command_template: string
-  defaults?: Record<string, string>
-  variables?: Record<string, string>
-  resources?: Record<string, string>
-  exposes?: Record<string, string>
-  connections?: Record<string, string>
+**State** (state.go):
+```go
+type State struct {
+    Instances  map[string]*Instance       // name -> Instance
+    Templates  map[string]*Template       // id -> Template
+    Resources  map[string]*Resource       // type:value -> Resource
+    Counters   map[string]int             // counter_name -> current
+    Types      map[string]*ResourceType   // Resource type definitions
 }
 ```
 
-**ProcessInstance Interface**:
-```typescript
-{
-  id: string
-  name: string
-  status: "stopped" | "starting" | "running" | "stopping" | "error"
-  pid: number | null
-  ports: number[]
-  template_id: string
-  notes?: string
-  vars: Record<string, string>
-  command: string
-  error_message?: string
-  cpu_usage?: number
-  memory_usage?: number
+**Instance** (process.go):
+```go
+type Instance struct {
+    Name       string                 // User-provided name
+    Template   string                 // Template ID
+    Command    string                 // Final interpolated command
+    PID        int                    // Process ID
+    Status     string                 // stopped|starting|running|stopping
+    Resources  map[string]string      // resource_type -> value
+    Started    int64                  // Unix timestamp
+}
+```
+
+**Template** (process.go):
+```go
+type Template struct {
+    ID         string                 // Unique template ID
+    Label      string                 // Human-readable label
+    Command    string                 // Template with ${var} and %counter
+    Resources  []string               // Resource types this needs
+    Vars       map[string]string      // Default variables
+}
+```
+
+**Resource** (resource.go):
+```go
+type Resource struct {
+    Type       string                 // tcpport|vncport|gpu|license|whatever
+    Value      string                 // "3000" or "/path" or "0"
+    Owner      string                 // Instance name
+}
+```
+
+**ResourceType** (resource.go):
+```go
+type ResourceType struct {
+    Name       string                 // Resource type name
+    Check      string                 // Shell command to check availability
+    Counter    bool                   // Is this auto-incrementing?
+    Start      int                    // Counter start value
+    End        int                    // Counter end value
 }
 ```
 ---
 
-## Future Roadmap
+## Implementation Phases
 
-### Phase 1: Frontend with mock data
+### Phase 1: State & Resource System
+- Core resource allocation without processes
+- ResourceType and Resource structs
+- AllocateResource with counter support
+- CheckResource with shell command execution
+- State persistence to JSON
 
-### Phase 2: Backend Integration
-- Actual process spawning
-- WebSocket for real-time process output streaming?
-- File system integration for template persistence
-- Process lifecycle management (spawn, kill, restart)
+### Phase 2: Process Management
+- StartProcess with resource allocation
+- StopProcess with cleanup
+- Template and Instance structs
+- Variable interpolation (${var} and %counter)
+- Process tracking (PID, status)
 
-### Phase 3: Enhanced Observability
-- Real-time log streaming and filtering
-- Historical metrics and graphs
-- Process dependency visualization
-- Alert configuration (CPU/memory thresholds)
+### Phase 3: CLI Interface
+- Minimal command dispatcher
+- Commands: start, stop, ps, template, resource-type
+- Argument parsing (--key=value)
+- Pretty output
 
-### Phase 4: Collaboration & Sharing
-- Import/export templates as JSON/YAML
-- Team template libraries
-- Workspace persistence (save/load configurations)
-- Configuration versioning
+### Phase 4: Web UI
+- Single-page HTML dashboard
+- API endpoints (instances, templates, resources, types)
+- Start/stop buttons
+- Resource type editor
+- Auto-refresh
 
-### Phase 5: Advanced Features
+### Phase 5: Polish & Testing
+- Error handling
+- Unit tests
+- Example templates
+- Documentation
+- Installation script
+
+---
+
+## Future Enhancements (Post-Core)
+
+### Enhanced Observability
+- Real-time CPU/memory metrics from /proc
+- Historical metrics graphs
+- Process output streaming
+- Log filtering and search
+
+### Collaboration Features
+- Import/export templates
+- Template marketplace/library
+- Shared state across team
+
+### Advanced Resource Management
 - Process dependency management (start order)
-- Health check configuration
+- Health check configuration (custom commands)
 - Auto-restart on failure
-- Environment variable management
-- Docker container integration
-- SSH remote process management
-
-### Phase 6: Developer Experience
-- CLI companion tool
-- VS Code extension
-- Global hotkeys for common actions
-- Process grouping and bulk operations
-- Quick start from project detection
+- Resource quotas
 
 ---
 
 ## Non-Goals (Out of Scope)
 
 - **Container Orchestration**: Not replacing Docker Compose or Kubernetes
-- **Production Deployment**: Tool is for local development only
+- **Production Deployment**: Tool is for local/development use
 - **CI/CD Integration**: Not a build or deployment pipeline
-- **Cloud Process Management**: Local machine only
-- **Programming Language Execution**: Not a code editor or runtime manager
+- **Cloud Process Management**: Local machine focus
+- **Hardcoded Resource Types**: Everything user-definable
 
 ---
 
 ## Dependencies & Prerequisites
 
 ### User Prerequisites
-- Modern web browser (Chrome, Firefox, Safari, Edge)
-- Node.js installed (for process execution in Phase 2)
-- Operating system: Linux, macOS, or Windows
+- **Operating System**: Linux or macOS (Windows with WSL)
+- **Shell**: bash/sh (for check commands)
+- **Browser**: Modern browser for web UI (Chrome, Firefox, Safari, Edge)
+- **Optional Tools**: nc (netcat), nvidia-smi, lmutil, etc. depending on resource types used
 
 ### Technical Dependencies
-- Next.js 16+
-- React 19+
-- Node.js 20+ (for development)
-- Modern CSS support (Grid, Flexbox)
+- **Go 1.21+**: stdlib only, zero external dependencies
+- **No Runtime Dependencies**: Single static binary
 
 ---
 
 ## Security Considerations
 
-### Current Security Model
+### Security Model
 - **No Authentication**: Single-user local application
-- **No Network Exposure**: Runs on localhost only
-- **Process Isolation**: Will use OS-level process isolation (Phase 2)
-- **Input Validation**: Template commands executed as shell commands (requires sanitization)
+- **Localhost Only**: Web UI binds to 127.0.0.1 by default
+- **Process Isolation**: Uses OS-level process isolation (standard Unix fork/exec)
+- **Shell Command Execution**: Check commands run via `sh -c` (user responsibility to avoid injection)
+- **State File Permissions**: ~/.vibeprocess/state.json is user-readable only (0600)
 
-### Future Security Enhancements (Phase 2+)
-- Command injection prevention
-- Resource limit enforcement (CPU, memory, file descriptors)
-- Template signing/verification for shared libraries
-- Sandboxed process execution options
-- Audit logging for security events
-
----
-
-## Open Questions
-
-1. **Process Execution Model**: Should we use child_process, PM2, or another process manager?
-2. **Persistence Strategy**: SQLite, JSON files, or localStorage?
-3. **Multi-Project Support**: Should users be able to switch between different project workspaces?
-4. **Template Marketplace**: Should there be a community-shared template repository?
-5. **Cross-Platform Support**: How do we handle OS-specific commands (bash vs PowerShell)?
+### Security Best Practices
+- Review check commands before adding resource types
+- Don't run as root (processes inherit permissions)
+- Use explicit resource values when possible (avoid auto-allocation for sensitive resources)
+- State file contains PIDs and commands - don't commit to git
 
 ---
 
@@ -264,41 +326,62 @@ NB Treat as a guideline
 
 ### Example Templates
 
-**Node.js Express Server**:
-```javascript
+**PostgreSQL Database**:
+```json
 {
-  id: "node-express",
-  label: "Node.js Express Server",
-  command_template: "node server.js --port ${port} --env ${env}",
-  defaults: { port: "%tcpport", env: "development" },
-  variables: ["port", "env"],
-  resources: { ports: ["${port}"], files: ["server.js", "package.json"] },
-  exposes: { http: ":${port}" },
-  connections: {
-    curl: "curl -I http://localhost:${port}",
-    browser: "open http://localhost:${port}"
+  "id": "postgres",
+  "label": "PostgreSQL Database",
+  "command": "postgres -D ${datadir} -p ${tcpport}",
+  "resources": ["tcpport", "datadir"],
+  "vars": {
+    "datadir": "/tmp/pgdata"
   }
 }
 ```
 
-**PostgreSQL Database**:
-```javascript
+**QEMU Virtual Machine**:
+```json
 {
-  id: "postgresql",
-  label: "PostgreSQL Database",
-  command_template: "postgres -D ${data_dir} -p ${port}",
-  defaults: { data_dir: "/var/lib/postgresql/data", port: "5432" },
-  variables: ["data_dir", "port"],
-  resources: { ports: ["${port}"], files: ["${data_dir}"] },
-  exposes: { psql: ":${port}" },
-  connections: { psql: "psql -h localhost -p ${port} -U postgres" }
+  "id": "qemu",
+  "label": "QEMU Virtual Machine",
+  "command": "qemu-system-x86_64 -vnc :${vncport} -serial tcp::${serialport},server,nowait ${args}",
+  "resources": ["vncport", "serialport"],
+  "vars": {
+    "args": "-m 2G"
+  }
+}
+```
+
+**Node.js Server**:
+```json
+{
+  "id": "node-express",
+  "label": "Node.js Express Server",
+  "command": "node server.js --port ${tcpport}",
+  "resources": ["tcpport"],
+  "vars": {}
+}
+```
+
+**ML Training (Custom GPU Resource)**:
+```json
+{
+  "id": "ml-training",
+  "label": "ML Training Job",
+  "command": "python train.py --gpu ${gpu} --data ${datadir}",
+  "resources": ["gpu", "datadir"],
+  "vars": {
+    "datadir": "/data/training"
+  }
 }
 ```
 
 ### Glossary
 
-- **Template**: A reusable process configuration blueprint
-- **Instance**: A named, configured instantiation of a template
-- **Resource**: A system resource (port, file) that can be allocated to processes, can be auto incrementing or have a range
-- **Connection**: A predefined command for accessing a running service
-- **Interpolation**: The process of replacing variables with their values in templates
+- **Template**: Reusable process configuration with resource requirements
+- **Instance**: Named, running process created from a template
+- **Resource**: Generic type:value pair (port, file, GPU, license, etc.)
+- **ResourceType**: User-defined resource with check command
+- **Counter**: Auto-incrementing resource type (tcpport, vncport, etc.)
+- **Check Command**: Shell command to validate resource availability
+- **Interpolation**: ${var} and %counter replacement in commands
