@@ -21,6 +21,8 @@ func ServeHTTP(addr string) error {
 	http.HandleFunc("/api/resources", handleResources)
 	http.HandleFunc("/api/resource-types", handleResourceTypes)
 	http.HandleFunc("/api/config", handleConfig)
+	http.HandleFunc("/api/discover", handleDiscover)
+	http.HandleFunc("/api/monitor", handleMonitor)
 
 	return http.ListenAndServe(addr, nil)
 }
@@ -239,6 +241,53 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func handleDiscover(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "GET" {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse query parameters
+	portsOnly := r.URL.Query().Get("ports_only") != "false"
+
+	processes, err := DiscoverProcesses(state, portsOnly)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(processes)
+}
+
+func handleMonitor(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		PID  int    `json:"pid"`
+		Name string `json:"name"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	inst, err := MonitorProcess(state, req.PID, req.Name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	json.NewEncoder(w).Encode(inst)
 }
 
 // Helper function to get path parameter

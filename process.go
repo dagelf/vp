@@ -19,6 +19,8 @@ type Instance struct {
 	Status    string            `json:"status"`    // stopped|starting|running|stopping|error
 	Resources map[string]string `json:"resources"` // resource_type -> value
 	Started   int64             `json:"started"`   // Unix timestamp
+	Cwd       string            `json:"cwd,omitempty"`       // Working directory
+	Managed   bool              `json:"managed"`             // true=can stop/restart, false=monitor only
 	Error     string            `json:"error,omitempty"`
 }
 
@@ -126,6 +128,12 @@ func StartProcess(state *State, template *Template, name string, vars map[string
 	inst.PID = proc.Process.Pid
 	inst.Status = "running"
 	inst.Started = time.Now().Unix()
+	inst.Managed = true // Processes started by us are managed
+
+	// Capture working directory
+	if cwd, err := os.Getwd(); err == nil {
+		inst.Cwd = cwd
+	}
 
 	state.Instances[name] = inst
 	state.Save()
@@ -257,6 +265,88 @@ func RestartProcess(state *State, inst *Instance) error {
 	}()
 
 	return nil
+}
+
+// MonitorProcess adds an existing process to vibeprocess as monitored (not managed)
+func MonitorProcess(state *State, pid int, name string) (*Instance, error) {
+	// Check if instance name already exists
+	if state.Instances[name] != nil {
+		return nil, fmt.Errorf("instance %s already exists", name)
+	}
+
+	// Check if process exists
+	if !IsProcessRunning(pid) {
+		return nil, fmt.Errorf("process %d not running", pid)
+	}
+
+	// Read process info from /proc
+	cmdline := readCmdline(pid)
+	if cmdline == "" {
+		return nil, fmt.Errorf("cannot read process %d", pid)
+	}
+
+	cwd := readCwd(pid)
+
+	// Detect resources (ports)
+	pidPorts := scanListeningPorts()
+	ports := pidPorts[pid]
+	resources := detectResourcesFromPorts(ports)
+
+	// Check if we can manage this process (send signals to it)
+	managed := canManageProcess(pid)
+
+	inst := &Instance{
+		Name:      name,
+		Command:   cmdline,
+		PID:       pid,
+		Status:    "running",
+		Resources: resources,
+		Cwd:       cwd,
+		Managed:   managed, // true if we can send signals, false if different user
+		Started:   time.Now().Unix(),
+	}
+
+	// Claim resources (monitored processes DO use resources!)
+	for rtype, value := range resources {
+		state.ClaimResource(rtype, value, name)
+	}
+
+	state.Instances[name] = inst
+	state.Save()
+
+	// Start monitoring goroutine to detect when process exits
+	go func() {
+		for {
+			time.Sleep(2 * time.Second)
+			if !IsProcessRunning(pid) {
+				if inst, exists := state.Instances[name]; exists && inst.PID == pid {
+					inst.Status = "stopped"
+					inst.PID = 0
+					state.Save()
+				}
+				break
+			}
+		}
+	}()
+
+	return inst, nil
+}
+
+// canManageProcess checks if we have permission to send signals to a process
+func canManageProcess(pid int) bool {
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+
+	// Try to send signal 0 (null signal) to test permissions
+	// If we get EPERM, we can't manage it. If we get no error, we can.
+	err = process.Signal(syscall.Signal(0))
+	if err != nil {
+		// EPERM means process exists but we can't signal it
+		return false
+	}
+	return true
 }
 
 // IsProcessRunning checks if a process is still running
