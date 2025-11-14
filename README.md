@@ -1,8 +1,8 @@
 # Vibeprocess Manager
 
-**Firmware-style process orchestration with zero assumptions**
+**Process orchestration with zero assumptions**
 
-Vibeprocess Manager is an ultra-lean process manager built on a radical philosophy: make **zero assumptions** about what resources are or how they work. Everything is user-defined through simple shell commands.
+Vibeprocess Manager is an ultra-lean process manager built on a radical philosophy: make **zero assumptions** about what resources are or how they work. Everything is user-defined through simple shell commands or great Web UX.
 
 ## Philosophy
 

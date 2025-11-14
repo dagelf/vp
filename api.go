@@ -22,6 +22,8 @@ func ServeHTTP(addr string) error {
 	http.HandleFunc("/api/resource-types", handleResourceTypes)
 	http.HandleFunc("/api/discover", handleDiscover)
 	http.HandleFunc("/api/discover-port", handleDiscoverPort)
+	http.HandleFunc("/api/config", handleConfig)
+	http.HandleFunc("/api/monitor", handleMonitor)
 
 	return http.ListenAndServe(addr, nil)
 }
@@ -63,7 +65,8 @@ func handleInstances(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if req.Action == "start" {
+		switch req.Action {
+		case "start":
 			tmpl := state.Templates[req.Template]
 			if tmpl == nil {
 				http.Error(w, "template not found", http.StatusNotFound)
@@ -77,7 +80,8 @@ func handleInstances(w http.ResponseWriter, r *http.Request) {
 			}
 
 			json.NewEncoder(w).Encode(inst)
-		} else if req.Action == "stop" {
+
+		case "stop":
 			inst := state.Instances[req.InstanceID]
 			if inst == nil {
 				http.Error(w, "instance not found", http.StatusNotFound)
@@ -94,7 +98,22 @@ func handleInstances(w http.ResponseWriter, r *http.Request) {
 			state.Save()
 
 			json.NewEncoder(w).Encode(map[string]string{"status": "stopped"})
-		} else {
+
+		case "restart":
+			inst := state.Instances[req.InstanceID]
+			if inst == nil {
+				http.Error(w, "instance not found", http.StatusNotFound)
+				return
+			}
+
+			if err := RestartProcess(state, inst); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+
+			json.NewEncoder(w).Encode(inst)
+
+		default:
 			http.Error(w, "invalid action", http.StatusBadRequest)
 		}
 
@@ -173,6 +192,103 @@ func handleResourceTypes(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func handleConfig(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	switch r.Method {
+	case "GET":
+		// Return entire state as JSON
+		json.NewEncoder(w).Encode(state)
+
+	case "POST":
+		// Replace entire state with provided JSON
+		var newState State
+		if err := json.NewDecoder(r.Body).Decode(&newState); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Validate that maps are initialized
+		if newState.Instances == nil {
+			newState.Instances = make(map[string]*Instance)
+		}
+		if newState.Templates == nil {
+			newState.Templates = make(map[string]*Template)
+		}
+		if newState.Resources == nil {
+			newState.Resources = make(map[string]*Resource)
+		}
+		if newState.Counters == nil {
+			newState.Counters = make(map[string]int)
+		}
+		if newState.Types == nil {
+			newState.Types = make(map[string]*ResourceType)
+		}
+
+		// Update global state
+		state.Instances = newState.Instances
+		state.Templates = newState.Templates
+		state.Resources = newState.Resources
+		state.Counters = newState.Counters
+		state.Types = newState.Types
+
+		// Save to disk
+		state.Save()
+
+		json.NewEncoder(w).Encode(map[string]string{"status": "saved"})
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func handleDiscover(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "GET" {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse query parameters
+	portsOnly := r.URL.Query().Get("ports_only") != "false"
+
+	processes, err := DiscoverProcesses(state, portsOnly)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(processes)
+}
+
+func handleMonitor(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		PID  int    `json:"pid"`
+		Name string `json:"name"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	inst, err := MonitorProcess(state, req.PID, req.Name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	json.NewEncoder(w).Encode(inst)
 }
 
 // Helper function to get path parameter

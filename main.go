@@ -26,6 +26,8 @@ func main() {
 		handleStart(args)
 	case "stop":
 		handleStop(args)
+	case "restart":
+		handleRestart(args)
 	case "ps":
 		listInstances()
 	case "serve":
@@ -42,7 +44,7 @@ func main() {
 		handleInspect(args)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", cmd)
-		fmt.Fprintf(os.Stderr, "Commands: start, stop, ps, serve, template, resource-type, discover, discover-port, inspect\n")
+		fmt.Fprintf(os.Stderr, "Commands: start, stop, restart, ps, serve, template, resource-type\n")
 		os.Exit(1)
 	}
 }
@@ -104,6 +106,32 @@ func handleStop(args []string) {
 	state.Save()
 
 	fmt.Printf("Stopped %s\n", name)
+}
+
+func handleRestart(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintf(os.Stderr, "Usage: vp restart <name>\n")
+		os.Exit(1)
+	}
+
+	name := args[0]
+	inst := state.Instances[name]
+	if inst == nil {
+		fmt.Fprintf(os.Stderr, "Instance not found: %s\n", name)
+		os.Exit(1)
+	}
+
+	if err := RestartProcess(state, inst); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Restarted %s (PID %d)\n", inst.Name, inst.PID)
+	fmt.Printf("Command: %s\n", inst.Command)
+	fmt.Printf("Resources:\n")
+	for k, v := range inst.Resources {
+		fmt.Printf("  %s = %s\n", k, v)
+	}
 }
 
 func handleServe(args []string) {

@@ -1,5 +1,17 @@
-# Build artifacts
-vp
-
 # State directory
+=======
+# Binaries
+#vp
+#vp.exe
+
+# Go workspace
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+
+# State
 .vibeprocess/

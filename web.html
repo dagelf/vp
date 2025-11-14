@@ -36,6 +36,32 @@
         .tab-content { display: none; }
         .tab-content.active { display: block; }
 
+        .toolbar {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .refresh-control {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-left: auto;
+        }
+
+        .refresh-control label {
+            font-size: 14px;
+            color: #666;
+        }
+
+        .refresh-control input[type="number"] {
+            width: 60px;
+            padding: 6px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
         table {
             width: 100%;
             background: white;
@@ -70,11 +96,12 @@
 
         button {
             padding: 8px 16px;
-            margin: 4px;
+            margin: 2px;
             cursor: pointer;
             border: 1px solid #ddd;
             background: white;
             border-radius: 4px;
+            font-size: 13px;
         }
         button:hover { background: #f0f0f0; }
         button.primary {
@@ -83,12 +110,22 @@
             border-color: #007bff;
         }
         button.primary:hover { background: #0056b3; }
+        button.success {
+            background: #28a745;
+            color: white;
+            border-color: #28a745;
+        }
+        button.success:hover { background: #218838; }
         button.danger {
             background: #dc3545;
             color: white;
             border-color: #dc3545;
         }
         button.danger:hover { background: #c82333; }
+        button.small {
+            padding: 4px 8px;
+            font-size: 11px;
+        }
 
         .card {
             background: white;
@@ -126,6 +163,10 @@
             padding-bottom: 10px;
             border-bottom: 1px solid #eee;
         }
+
+        .actions {
+            white-space: nowrap;
+        }
     </style>
 </head>
 <body>
@@ -134,16 +175,24 @@
 
     <div class="tabs">
         <button class="tab active" onclick="showTab('instances')">Instances</button>
+        <button class="tab" onclick="showTab('discover')">Discovery</button>
         <button class="tab" onclick="showTab('templates')">Templates</button>
         <button class="tab" onclick="showTab('resources')">Resources</button>
         <button class="tab" onclick="showTab('types')">Resource Types</button>
+        <button class="tab" onclick="showTab('config')">Configuration</button>
     </div>
 
     <!-- Instances Tab -->
     <div id="instances-tab" class="tab-content active">
-        <div style="margin-bottom: 20px;">
+        <div class="toolbar">
             <button class="primary" onclick="showStartForm()">+ Start Instance</button>
             <button onclick="loadInstances()">↻ Refresh</button>
+
+            <div class="refresh-control">
+                <label>Auto-refresh:</label>
+                <input type="number" id="refresh-interval" value="1" min="0" max="60" step="0.5">
+                <span>seconds</span>
+            </div>
         </div>
         <table id="instances-table">
             <thead>
@@ -158,6 +207,37 @@
             </thead>
             <tbody id="instances-list"></tbody>
         </table>
+    </div>
+
+    <!-- Discovery Tab -->
+    <div id="discover-tab" class="tab-content">
+        <div class="card" style="margin-bottom: 20px;">
+            <h3>Discovery Options</h3>
+            <div style="margin: 15px 0;">
+                <label style="display: inline-flex; align-items: center; margin-right: 20px;">
+                    <input type="checkbox" id="ports-only" checked style="width: auto; margin-right: 5px;">
+                    Only show processes listening on ports
+                </label>
+                <button class="primary" onclick="discoverProcesses()">Discover Processes</button>
+            </div>
+        </div>
+
+        <table id="discover-table" style="display: none;">
+            <thead>
+                <tr>
+                    <th>PID</th>
+                    <th>Command</th>
+                    <th>Working Directory</th>
+                    <th>Ports</th>
+                    <th>Resources</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody id="discover-list"></tbody>
+        </table>
+        <div id="discover-empty" style="text-align: center; color: #999; padding: 40px;">
+            Click "Discover Processes" to scan for running processes
+        </div>
     </div>
 
     <!-- Templates Tab -->
@@ -181,11 +261,50 @@
         <div id="types-list"></div>
     </div>
 
+    <!-- Configuration Tab -->
+    <div id="config-tab" class="tab-content">
+        <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h2 style="margin: 0;">State Configuration</h2>
+                <div>
+                    <button class="primary" onclick="saveConfig()">Save Configuration</button>
+                    <button onclick="loadConfig()">↻ Reload</button>
+                </div>
+            </div>
+            <p style="color: #666; margin-bottom: 15px;">
+                Edit the entire state JSON. Be careful - invalid JSON will be rejected.
+            </p>
+            <textarea id="config-editor" style="width: 100%; min-height: 500px; font-family: monospace; font-size: 13px; padding: 10px; border: 1px solid #ddd; border-radius: 4px;"></textarea>
+            <div id="config-status" style="margin-top: 10px; padding: 10px; border-radius: 4px; display: none;"></div>
+        </div>
+    </div>
+
     <script>
         let instances = {};
         let templates = {};
         let resources = {};
         let types = {};
+        let refreshIntervalId = null;
+        let lastInstancesHTML = '';
+
+        // Initialize refresh interval
+        function updateRefreshInterval() {
+            const interval = parseFloat(document.getElementById('refresh-interval').value);
+
+            if (refreshIntervalId) {
+                clearInterval(refreshIntervalId);
+            }
+
+            if (interval > 0) {
+                refreshIntervalId = setInterval(loadInstances, interval * 1000);
+            }
+        }
+
+        // Listen for refresh interval changes
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('refresh-interval').addEventListener('change', updateRefreshInterval);
+            updateRefreshInterval();
+        });
 
         async function loadInstances() {
             const res = await fetch('/api/instances');
@@ -197,21 +316,37 @@
                 return;
             }
 
-            const html = Object.values(instances).map(i => `
-                <tr>
-                    <td><strong>${i.name}</strong></td>
-                    <td><span class="status ${i.status}">${i.status}</span></td>
-                    <td>${i.pid || 'N/A'}</td>
-                    <td><span class="code">${truncate(i.command, 60)}</span></td>
-                    <td>${formatResources(i.resources)}</td>
-                    <td>
-                        ${i.status === 'running' ?
-                            `<button class="danger" onclick="stopInstance('${i.name}')">Stop</button>` :
-                            ''}
-                    </td>
-                </tr>
-            `).join('');
-            tbody.innerHTML = html;
+            // Build new HTML
+            const newHTML = Object.values(instances).map(i => {
+                const actions = [];
+
+                if (i.status === 'running') {
+                    actions.push(`<button class="danger small" onclick="stopInstance('${i.name}')">Stop</button>`);
+                } else if (i.status === 'stopped') {
+                    actions.push(`<button class="success small" onclick="restartInstance('${i.name}')">Restart</button>`);
+                }
+
+                actions.push(`<button class="small" onclick="copyTemplateCommand('${i.name}')">📋 Copy Template Cmd</button>`);
+
+                return `
+                    <tr data-instance="${i.name}">
+                        <td><strong>${i.name}</strong></td>
+                        <td><span class="status ${i.status}">${i.status}</span></td>
+                        <td>${i.pid || 'N/A'}</td>
+                        <td><span class="code">${truncate(i.command, 60)}</span></td>
+                        <td>${formatResources(i.resources)}</td>
+                        <td class="actions">
+                            ${actions.join('')}
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+
+            // Only update if changed (prevents flashing)
+            if (newHTML !== lastInstancesHTML) {
+                tbody.innerHTML = newHTML;
+                lastInstancesHTML = newHTML;
+            }
         }
 
         async function loadTemplates() {
@@ -271,6 +406,148 @@
             list.innerHTML = html;
         }
 
+        async function loadConfig() {
+            const res = await fetch('/api/config');
+            const config = await res.json();
+            document.getElementById('config-editor').value = JSON.stringify(config, null, 2);
+            showConfigStatus('Configuration loaded', 'success');
+        }
+
+        async function saveConfig() {
+            const editor = document.getElementById('config-editor');
+            let config;
+
+            try {
+                config = JSON.parse(editor.value);
+            } catch (err) {
+                showConfigStatus('Invalid JSON: ' + err.message, 'error');
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(config)
+                });
+
+                if (!res.ok) {
+                    const err = await res.text();
+                    showConfigStatus('Save failed: ' + err, 'error');
+                    return;
+                }
+
+                showConfigStatus('Configuration saved successfully', 'success');
+
+                // Reload all data
+                loadInstances();
+                loadTemplates();
+                loadResources();
+                loadResourceTypes();
+            } catch (err) {
+                showConfigStatus('Error: ' + err.message, 'error');
+            }
+        }
+
+        function showConfigStatus(message, type) {
+            const status = document.getElementById('config-status');
+            status.textContent = message;
+            status.style.display = 'block';
+
+            if (type === 'success') {
+                status.style.background = '#d4edda';
+                status.style.color = '#155724';
+                status.style.border = '1px solid #c3e6cb';
+            } else {
+                status.style.background = '#f8d7da';
+                status.style.color = '#721c24';
+                status.style.border = '1px solid #f5c6cb';
+            }
+
+            setTimeout(() => {
+                status.style.display = 'none';
+            }, 3000);
+        }
+
+        async function discoverProcesses() {
+            const portsOnly = document.getElementById('ports-only').checked;
+            const res = await fetch(`/api/discover?ports_only=${portsOnly}`);
+            const processes = await res.json();
+
+            const tbody = document.getElementById('discover-list');
+            const table = document.getElementById('discover-table');
+            const empty = document.getElementById('discover-empty');
+
+            if (!processes || processes.length === 0) {
+                table.style.display = 'none';
+                empty.style.display = 'block';
+                empty.textContent = 'No discoverable processes found';
+                return;
+            }
+
+            table.style.display = 'table';
+            empty.style.display = 'none';
+
+            tbody.innerHTML = processes.map(p => {
+                const portsStr = p.ports && p.ports.length > 0 ? p.ports.join(', ') : '-';
+                const resourcesStr = formatResources(p.resources);
+                const cmdShort = truncate(p.command, 40);
+                const cwdShort = truncate(p.cwd, 30);
+
+                return `
+                    <tr>
+                        <td>${p.pid}</td>
+                        <td><span class="code">${cmdShort}</span></td>
+                        <td><span class="code">${cwdShort}</span></td>
+                        <td>${portsStr}</td>
+                        <td>${resourcesStr}</td>
+                        <td>
+                            <button class="success small" onclick="monitorProcess(${p.pid}, '${escapeHtml(p.command)}')">+ Add</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        async function monitorProcess(pid, command) {
+            // Auto-generate name from command
+            const cmdParts = command.split(' ');
+            const cmdName = cmdParts[0].split('/').pop();
+            const name = prompt(`Add process as:`, `${cmdName}-${pid}`);
+            if (!name) return;
+
+            try {
+                const res = await fetch('/api/monitor', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ pid: pid, name: name })
+                });
+
+                if (!res.ok) {
+                    const err = await res.text();
+                    alert('Error: ' + err);
+                    return;
+                }
+
+                alert(`Process ${pid} added as "${name}"`);
+                discoverProcesses(); // Refresh discovery list
+                loadInstances(); // Refresh instances list
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        }
+
+        function escapeHtml(text) {
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return text.replace(/[&<>"']/g, m => map[m]);
+        }
+
         function showTab(tabName) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
@@ -279,9 +556,11 @@
             document.getElementById(tabName + '-tab').classList.add('active');
 
             if (tabName === 'instances') loadInstances();
+            if (tabName === 'discover') { /* Don't auto-discover, wait for button click */ }
             if (tabName === 'templates') loadTemplates();
             if (tabName === 'resources') loadResources();
             if (tabName === 'types') loadResourceTypes();
+            if (tabName === 'config') loadConfig();
         }
 
         function startFromTemplate(templateId) {
@@ -352,6 +631,59 @@
             }
         }
 
+        async function restartInstance(name) {
+            try {
+                const res = await fetch('/api/instances', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        action: 'restart',
+                        instance_id: name
+                    })
+                });
+
+                if (!res.ok) {
+                    const err = await res.text();
+                    alert('Error restarting: ' + err);
+                    return;
+                }
+
+                loadInstances();
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        }
+
+        function copyTemplateCommand(name) {
+            const instance = instances[name];
+            if (!instance) {
+                alert('Instance not found');
+                return;
+            }
+
+            // Build the template JSON for this instance
+            const template = {
+                id: instance.name + '-template',
+                label: 'Template from ' + instance.name,
+                command: instance.command,
+                resources: Object.keys(instance.resources || {}),
+                vars: instance.vars || {}
+            };
+
+            const json = JSON.stringify(template, null, 2);
+            const filename = `/tmp/${instance.name}-template.json`;
+
+            const command = `echo '${json}' > ${filename} && ./vp template add ${filename}`;
+
+            // Copy to clipboard
+            navigator.clipboard.writeText(command).then(() => {
+                alert(`Copied to clipboard!\n\nPaste in terminal to add as template:\n\n${command}`);
+            }).catch(() => {
+                // Fallback if clipboard fails
+                prompt('Copy this command:', command);
+            });
+        }
+
         function showAddTemplateForm() {
             const json = prompt('Paste template JSON:');
             if (!json) return;
@@ -401,9 +733,8 @@
             return s.substring(0, n) + '...';
         }
 
-        // Auto-refresh instances
+        // Initial load
         loadInstances();
-        setInterval(loadInstances, 5000);
     </script>
 </body>
 </html>
