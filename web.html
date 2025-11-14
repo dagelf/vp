@@ -110,18 +110,6 @@
             border-color: #007bff;
         }
         button.primary:hover { background: #0056b3; }
-        button.success {
-            background: #28a745;
-            color: white;
-            border-color: #28a745;
-        }
-        button.success:hover { background: #218838; }
-        button.danger {
-            background: #dc3545;
-            color: white;
-            border-color: #dc3545;
-        }
-        button.danger:hover { background: #c82333; }
         button.small {
             padding: 4px 8px;
             font-size: 11px;
@@ -321,13 +309,13 @@
                 const actions = [];
 
                 if (i.status === 'running') {
-                    actions.push(`<button class="danger small" onclick="stopInstance('${i.name}')">Stop</button>`);
+                    actions.push(`<button class="small" onclick="stopInstance('${i.name}')">Stop</button>`);
                 } else if (i.status === 'stopped') {
-                    actions.push(`<button class="success small" onclick="restartInstance('${i.name}')">Restart</button>`);
+                    actions.push(`<button class="small" onclick="restartInstance('${i.name}')">Start</button>`);
                 }
 
-                actions.push(`<button class="small" onclick="addAsTemplate('${i.name}')">➕ Add as Template</button>`);
-                actions.push(`<button class="danger small" onclick="deleteInstance('${i.name}')">🗑️ Delete</button>`);
+                actions.push(`<button class="small" onclick="addAsTemplate('${i.name}')">+</button>`);
+                actions.push(`<button class="small" onclick="deleteInstance('${i.name}')">-</button>`);
 
                 return `
                     <tr data-instance="${i.name}">
