@@ -512,3 +512,197 @@ func DiscoverProcesses(state *State, portsOnly bool) ([]map[string]interface{}, 
 
 	return result, nil
 }
+
+// MatchProcessToInstance checks if a discovered process matches a cached instance
+// Matching criteria:
+// - Resource matching (e.g., ports)
+// - Parent chain/launch script matching
+// - Command similarity
+func MatchProcessToInstance(procInfo *ProcessInfo, inst *Instance) bool {
+	// Don't match instances that are already running
+	if inst.Status == "running" && inst.PID != 0 && IsProcessRunning(inst.PID) {
+		return false
+	}
+
+	// Match by resources (especially ports)
+	if len(inst.Resources) > 0 {
+		for rtype, value := range inst.Resources {
+			if rtype == "tcpport" {
+				// Check if process is listening on this port
+				port, err := strconv.Atoi(value)
+				if err == nil {
+					for _, pport := range procInfo.Ports {
+						if pport == port {
+							return true // Resource match!
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Match by parent chain/launch script
+	if inst.LaunchScript != nil && len(procInfo.ParentChain) > 0 {
+		// Build full chain including the process itself
+		fullChain := append([]ProcessInfo{*procInfo}, procInfo.ParentChain...)
+		discoveredLaunchScript := FindLaunchScript(fullChain)
+
+		if discoveredLaunchScript != nil && inst.LaunchScript != nil {
+			// Match by command line
+			if discoveredLaunchScript.Cmdline == inst.LaunchScript.Cmdline {
+				return true
+			}
+
+			// Match by working directory + executable
+			if discoveredLaunchScript.Cwd != "" && inst.LaunchScript.Cwd != "" {
+				if discoveredLaunchScript.Cwd == inst.LaunchScript.Cwd &&
+					discoveredLaunchScript.Exe == inst.LaunchScript.Exe {
+					return true
+				}
+			}
+		}
+	}
+
+	// Match by command if it's similar enough
+	if inst.Command != "" && procInfo.Cmdline != "" {
+		// Exact match
+		if inst.Command == procInfo.Cmdline {
+			return true
+		}
+
+		// Fuzzy match: check if the commands contain similar key parts
+		// This helps match processes even if args differ slightly
+		instParts := strings.Fields(inst.Command)
+		procParts := strings.Fields(procInfo.Cmdline)
+
+		if len(instParts) > 0 && len(procParts) > 0 {
+			// Match by executable name and working directory
+			if inst.Cwd != "" && procInfo.Cwd != "" {
+				if inst.Cwd == procInfo.Cwd && instParts[0] == procParts[0] {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+// ReconcileInstancesOnStartup discovers running processes and matches them with cached instances
+// This is called when the application starts up to reconnect to processes that may still be running
+func ReconcileInstancesOnStartup(state *State) error {
+	// Find all instances that are stopped or have no PID
+	stoppedInstances := make([]*Instance, 0)
+	for _, inst := range state.Instances {
+		if inst.Status == "stopped" || inst.PID == 0 || !IsProcessRunning(inst.PID) {
+			stoppedInstances = append(stoppedInstances, inst)
+		}
+	}
+
+	if len(stoppedInstances) == 0 {
+		return nil // Nothing to reconcile
+	}
+
+	// Read all PIDs from /proc
+	procDir, err := os.Open("/proc")
+	if err != nil {
+		return err
+	}
+	defer procDir.Close()
+
+	entries, err := procDir.Readdirnames(-1)
+	if err != nil {
+		return err
+	}
+
+	matched := 0
+
+	for _, entry := range entries {
+		// Check if entry is a PID (numeric)
+		pid, err := strconv.Atoi(entry)
+		if err != nil {
+			continue
+		}
+
+		// Skip if this PID is already monitored by another instance
+		alreadyMonitored := false
+		for _, inst := range state.Instances {
+			if inst.PID == pid && inst.Status == "running" {
+				alreadyMonitored = true
+				break
+			}
+		}
+		if alreadyMonitored {
+			continue
+		}
+
+		// Read process info with parent chain
+		procInfo, err := DiscoverProcess(pid)
+		if err != nil {
+			continue // Skip processes we can't read
+		}
+
+		// Try to match this process with stopped instances
+		for _, inst := range stoppedInstances {
+			if MatchProcessToInstance(procInfo, inst) {
+				// Found a match! Reconnect the instance
+				inst.PID = pid
+				inst.Status = "running"
+				inst.Started = time.Now().Unix()
+
+				// Update parent chain and launch script if discovered
+				if len(procInfo.ParentChain) > 0 {
+					inst.ParentChain = procInfo.ParentChain
+					fullChain := append([]ProcessInfo{*procInfo}, procInfo.ParentChain...)
+					inst.LaunchScript = FindLaunchScript(fullChain)
+				}
+
+				// Update command if it changed
+				if procInfo.Cmdline != "" {
+					inst.Command = procInfo.Cmdline
+				}
+
+				// Update working directory
+				if procInfo.Cwd != "" {
+					inst.Cwd = procInfo.Cwd
+				}
+
+				// Update resources with discovered ports
+				if len(procInfo.Ports) > 0 {
+					if inst.Resources == nil {
+						inst.Resources = make(map[string]string)
+					}
+					// Add the first port if not already set
+					if _, hasPort := inst.Resources["tcpport"]; !hasPort {
+						inst.Resources["tcpport"] = fmt.Sprintf("%d", procInfo.Ports[0])
+					}
+				}
+
+				matched++
+
+				// Start monitoring goroutine to detect when process exits
+				go func(instName string, instPID int) {
+					for {
+						time.Sleep(2 * time.Second)
+						if !IsProcessRunning(instPID) {
+							if inst, exists := state.Instances[instName]; exists && inst.PID == instPID {
+								inst.Status = "stopped"
+								inst.PID = 0
+								state.Save()
+							}
+							break
+						}
+					}
+				}(inst.Name, inst.PID)
+
+				break // Move to next process
+			}
+		}
+	}
+
+	if matched > 0 {
+		state.Save()
+	}
+
+	return nil
+}

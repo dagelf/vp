@@ -13,6 +13,9 @@ func main() {
 	state = LoadState()
 	defer state.Save()
 
+	// Discover and reconnect to processes that match cached instances
+	ReconcileInstancesOnStartup(state)
+
 	if len(os.Args) < 2 {
 		listInstances()
 		return
