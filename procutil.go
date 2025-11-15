@@ -109,6 +109,12 @@ func ReadProcessInfo(pid int) (*ProcessInfo, error) {
 		}
 	}
 
+	// Read ports this process is listening on
+	ports, err := GetPortsForProcess(pid)
+	if err == nil {
+		info.Ports = ports
+	}
+
 	return info, nil
 }
 
@@ -171,6 +177,93 @@ func FindLaunchScript(chain []ProcessInfo) *ProcessInfo {
 // IsShell checks if a process name is a known shell
 func IsShell(name string) bool {
 	return ShellNames[name]
+}
+
+// GetPortsForProcess finds all TCP ports that a specific process is listening on
+func GetPortsForProcess(pid int) ([]int, error) {
+	// Get all socket inodes for this process
+	socketInodes := make(map[string]bool)
+	fdDir := filepath.Join("/proc", strconv.Itoa(pid), "fd")
+
+	fds, err := os.ReadDir(fdDir)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, fd := range fds {
+		link, err := os.Readlink(filepath.Join(fdDir, fd.Name()))
+		if err != nil {
+			continue
+		}
+		// Socket links look like "socket:[12345]"
+		if strings.HasPrefix(link, "socket:[") {
+			inode := strings.TrimPrefix(link, "socket:[")
+			inode = strings.TrimSuffix(inode, "]")
+			socketInodes[inode] = true
+		}
+	}
+
+	if len(socketInodes) == 0 {
+		return []int{}, nil
+	}
+
+	// Now scan /proc/net/tcp and /proc/net/tcp6 for these inodes
+	ports := make(map[int]bool)
+
+	for _, tcpFile := range []string{"/proc/net/tcp", "/proc/net/tcp6"} {
+		file, err := os.Open(tcpFile)
+		if err != nil {
+			continue
+		}
+		defer file.Close()
+
+		scanner := bufio.NewScanner(file)
+		scanner.Scan() // Skip header
+
+		for scanner.Scan() {
+			fields := strings.Fields(scanner.Text())
+			if len(fields) < 10 {
+				continue
+			}
+
+			// Field 3 is connection state (0A = LISTEN)
+			if fields[3] != "0A" {
+				continue // Only interested in listening sockets
+			}
+
+			// Field 9 is inode
+			inode := fields[9]
+
+			// Check if this inode belongs to our process
+			if !socketInodes[inode] {
+				continue
+			}
+
+			// Field 1 is local_address in format "IP:PORT" (hex)
+			localAddr := fields[1]
+			parts := strings.Split(localAddr, ":")
+			if len(parts) != 2 {
+				continue
+			}
+
+			// Parse port (hex)
+			portHex := parts[1]
+			portNum, err := strconv.ParseInt(portHex, 16, 64)
+			if err != nil {
+				continue
+			}
+
+			ports[int(portNum)] = true
+		}
+	}
+
+	// Convert map to slice
+	result := make([]int, 0, len(ports))
+	for port := range ports {
+		result = append(result, port)
+	}
+
+	return result, nil
 }
 
 // GetProcessesListeningOnPort finds all processes listening on a specific TCP port
