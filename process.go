@@ -500,10 +500,11 @@ func DiscoverProcesses(state *State, portsOnly bool) ([]map[string]interface{}, 
 		entry := map[string]interface{}{
 			"pid":     procInfo.PID,
 			"name":    procInfo.Name,
-			"cmdline": procInfo.Cmdline,
+			"command": procInfo.Cmdline,
 			"cwd":     procInfo.Cwd,
 			"exe":     procInfo.Exe,
-			"ports":   procInfo.Ports,
+			"ports":     procInfo.Ports,
+			"resources": map[string]string{}, // Empty resources for discovered processes
 		}
 
 		result = append(result, entry)
