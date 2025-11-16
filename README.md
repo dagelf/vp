@@ -126,7 +126,7 @@ Features:
 
 ## State Storage
 
-Everything persists to `~/.vibeprocess/state.json`:
+Everything persists to `~/.config/vp/state.json`:
 
 ```json
 {
