@@ -470,6 +470,11 @@ func DiscoverProcesses(state *State, portsOnly bool) ([]map[string]interface{}, 
 			continue // Skip processes we can't read
 		}
 
+		// If portsOnly, skip processes not listening on ports
+		if portsOnly && len(procInfo.Ports) == 0 {
+			continue
+		}
+
 		// Build result entry
 		entry := map[string]interface{}{
 			"pid":       procInfo.PID,
@@ -477,6 +482,7 @@ func DiscoverProcesses(state *State, portsOnly bool) ([]map[string]interface{}, 
 			"command":   procInfo.Cmdline,
 			"cwd":       procInfo.Cwd,
 			"exe":       procInfo.Exe,
+			"ports":     procInfo.Ports,
 			"resources": map[string]string{}, // Empty resources for discovered processes
 		}
 

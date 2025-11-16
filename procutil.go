@@ -18,6 +18,7 @@ type ProcessInfo struct {
 	Exe     string            `json:"exe"`    // Executable path
 	Cwd     string            `json:"cwd"`    // Working directory
 	Environ map[string]string `json:"environ"` // Environment variables
+	Ports   []int             `json:"ports"`  // TCP ports this process listens on
 }
 
 // ShellNames contains common shell executable names
@@ -105,6 +106,12 @@ func ReadProcessInfo(pid int) (*ProcessInfo, error) {
 				info.Environ[parts[0]] = parts[1]
 			}
 		}
+	}
+
+	// Read ports this process is listening on
+	ports, err := GetPortsForProcess(pid)
+	if err == nil {
+		info.Ports = ports
 	}
 
 	return info, nil
