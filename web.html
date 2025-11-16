@@ -131,6 +131,38 @@
             padding: 4px 8px;
             font-size: 11px;
         }
+        button.action-add {
+            background: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+        button.action-add:hover {
+            background: #0056b3;
+        }
+        button.action-remove {
+            background: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+        button.action-remove:hover {
+            background: #0056b3;
+        }
+        button.action-stop {
+            background: #ff6b6b;
+            color: white;
+            border-color: #ff6b6b;
+        }
+        button.action-stop:hover {
+            background: #ee5a52;
+        }
+        button.action-start {
+            background: #51cf66;
+            color: white;
+            border-color: #51cf66;
+        }
+        button.action-start:hover {
+            background: #40c057;
+        }
 
         .card {
             background: white;
@@ -220,11 +252,17 @@
         <div class="card" style="margin-bottom: 20px;">
             <h3>Discovery Options</h3>
             <div style="margin: 15px 0;">
-                <label style="display: inline-flex; align-items: center; margin-right: 20px;">
-                    <input type="checkbox" id="ports-only" checked style="width: auto; margin-right: 5px;">
-                    Only show processes listening on ports
-                </label>
                 <button class="primary" onclick="discoverProcesses()">Discover Processes</button>
+            </div>
+            <div style="margin: 15px 0;">
+                <label style="display: inline-flex; align-items: center; margin-right: 20px;">
+                    <input type="checkbox" id="filter-ports-only" onchange="applyDiscoveryFilters()" style="width: auto; margin-right: 5px;">
+                    Only show processes with ports
+                </label>
+                <label style="display: inline-flex; align-items: center; margin-right: 20px;">
+                    <input type="checkbox" id="filter-top-level" onchange="applyDiscoveryFilters()" style="width: auto; margin-right: 5px;">
+                    Only show top-level commands (below shells)
+                </label>
             </div>
         </div>
 
@@ -295,6 +333,7 @@
         let lastInstancesHTML = '';
         let sortColumn = 'name';
         let sortDirection = 'asc';
+        let discoveredProcesses = []; // Store all discovered processes for filtering
 
         // Initialize refresh interval
         function updateRefreshInterval() {
@@ -367,13 +406,13 @@
                 const actions = [];
 
                 if (i.status === 'running') {
-                    actions.push(`<button class="small" onclick="stopInstance('${i.name}')">Stop</button>`);
+                    actions.push(`<button class="small action-stop" onclick="stopInstance('${i.name}')">Stop</button>`);
                 } else if (i.status === 'stopped') {
-                    actions.push(`<button class="small" onclick="restartInstance('${i.name}')">Start</button>`);
+                    actions.push(`<button class="small action-start" onclick="restartInstance('${i.name}')">Start</button>`);
                 }
 
-                actions.push(`<button class="small" onclick="addAsTemplate('${i.name}')">+</button>`);
-                actions.push(`<button class="small" onclick="deleteInstance('${i.name}')">-</button>`);
+                actions.push(`<button class="small action-add" onclick="addAsTemplate('${i.name}')">+</button>`);
+                actions.push(`<button class="small action-remove" onclick="deleteInstance('${i.name}')">-</button>`);
 
                 return `
                     <tr data-instance="${i.name}">
@@ -521,26 +560,98 @@
         }
 
         async function discoverProcesses() {
-            const portsOnly = document.getElementById('ports-only').checked;
-            const res = await fetch(`/api/discover?ports_only=${portsOnly}`);
-            const processes = await res.json();
+            const res = await fetch(`/api/discover?ports_only=false`);
+            discoveredProcesses = await res.json();
 
-            const tbody = document.getElementById('discover-list');
-            const table = document.getElementById('discover-table');
-            const empty = document.getElementById('discover-empty');
-
-            if (!processes || processes.length === 0) {
+            if (!discoveredProcesses || discoveredProcesses.length === 0) {
+                const table = document.getElementById('discover-table');
+                const empty = document.getElementById('discover-empty');
                 table.style.display = 'none';
                 empty.style.display = 'block';
                 empty.textContent = 'No discoverable processes found';
                 return;
             }
 
+            // Build process tree for top-level detection
+            buildProcessTree();
+
+            // Apply filters
+            applyDiscoveryFilters();
+        }
+
+        function buildProcessTree() {
+            // Common shell names
+            const shells = ['bash', 'zsh', 'sh', 'fish', 'dash', 'ksh', 'tcsh', 'csh'];
+
+            // Build parent-child relationships
+            const processMap = {};
+            const childrenMap = {};
+
+            discoveredProcesses.forEach(p => {
+                processMap[p.pid] = p;
+                p.isTopLevel = false;
+                p.allPorts = new Set(p.ports || []);
+
+                if (!childrenMap[p.ppid]) {
+                    childrenMap[p.ppid] = [];
+                }
+                childrenMap[p.ppid].push(p);
+            });
+
+            // Find processes whose parent is a shell
+            discoveredProcesses.forEach(p => {
+                const parent = processMap[p.ppid];
+                if (parent) {
+                    const parentName = parent.name || '';
+                    if (shells.includes(parentName)) {
+                        p.isTopLevel = true;
+
+                        // Aggregate all ports from children recursively
+                        function aggregateChildPorts(proc) {
+                            const children = childrenMap[proc.pid] || [];
+                            children.forEach(child => {
+                                (child.ports || []).forEach(port => p.allPorts.add(port));
+                                aggregateChildPorts(child);
+                            });
+                        }
+                        aggregateChildPorts(p);
+                    }
+                }
+            });
+        }
+
+        function applyDiscoveryFilters() {
+            const filterPorts = document.getElementById('filter-ports-only').checked;
+            const filterTopLevel = document.getElementById('filter-top-level').checked;
+
+            let filtered = discoveredProcesses;
+
+            if (filterPorts) {
+                filtered = filtered.filter(p => p.ports && p.ports.length > 0);
+            }
+
+            if (filterTopLevel) {
+                filtered = filtered.filter(p => p.isTopLevel);
+            }
+
+            const tbody = document.getElementById('discover-list');
+            const table = document.getElementById('discover-table');
+            const empty = document.getElementById('discover-empty');
+
+            if (filtered.length === 0) {
+                table.style.display = 'none';
+                empty.style.display = 'block';
+                empty.textContent = 'No processes match the current filters';
+                return;
+            }
+
             table.style.display = 'table';
             empty.style.display = 'none';
 
-            tbody.innerHTML = processes.map(p => {
-                const portsStr = p.ports && p.ports.length > 0 ? p.ports.join(', ') : '-';
+            tbody.innerHTML = filtered.map(p => {
+                // Show all ports (including children's) for top-level processes
+                const portsToShow = p.isTopLevel && p.allPorts ? Array.from(p.allPorts) : (p.ports || []);
+                const portsStr = portsToShow.length > 0 ? portsToShow.join(', ') : '-';
                 const resourcesStr = formatResources(p.resources);
                 const nameStr = p.name || '-';
                 const cmdShort = truncate(p.command, 40);
@@ -549,7 +660,7 @@
                 return `
                     <tr>
                         <td>${p.pid}</td>
-                        <td><strong>${nameStr}</strong></td>
+                        <td><strong>${nameStr}</strong>${p.isTopLevel ? ' 🔝' : ''}</td>
                         <td><span class="code">${cmdShort}</span></td>
                         <td><span class="code">${cwdShort}</span></td>
                         <td>${portsStr}</td>
@@ -769,7 +880,7 @@
                     return;
                 }
 
-                alert(`Template "${templateId}" added successfully!`);
+                // Success - just reload templates without popup
                 loadTemplates();
             } catch (err) {
                 alert('Error: ' + err.message);
