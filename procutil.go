@@ -11,15 +11,13 @@ import (
 
 // ProcessInfo contains detailed information about a discovered process
 type ProcessInfo struct {
-	PID       int               `json:"pid"`
-	PPID      int               `json:"ppid"`       // Parent process ID
-	Name      string            `json:"name"`       // Process name
-	Cmdline   string            `json:"cmdline"`    // Full command line
-	Exe       string            `json:"exe"`        // Executable path
-	Cwd       string            `json:"cwd"`        // Working directory
-	Environ   map[string]string `json:"environ"`    // Environment variables
-	Ports     []int             `json:"ports"`      // TCP ports this process listens on
-	ParentChain []ProcessInfo   `json:"parent_chain,omitempty"` // Parent process chain
+	PID     int               `json:"pid"`
+	PPID    int               `json:"ppid"`   // Parent process ID
+	Name    string            `json:"name"`   // Process name
+	Cmdline string            `json:"cmdline"` // Full command line
+	Exe     string            `json:"exe"`    // Executable path
+	Cwd     string            `json:"cwd"`    // Working directory
+	Environ map[string]string `json:"environ"` // Environment variables
 }
 
 // ShellNames contains common shell executable names
@@ -107,12 +105,6 @@ func ReadProcessInfo(pid int) (*ProcessInfo, error) {
 				info.Environ[parts[0]] = parts[1]
 			}
 		}
-	}
-
-	// Read ports this process is listening on
-	ports, err := GetPortsForProcess(pid)
-	if err == nil {
-		info.Ports = ports
 	}
 
 	return info, nil
@@ -386,11 +378,6 @@ func DiscoverProcess(pid int) (*ProcessInfo, error) {
 	// The first element in chain is the target process itself
 	info := chain[0]
 
-	// Attach parent chain (excluding self)
-	if len(chain) > 1 {
-		info.ParentChain = chain[1:]
-	}
-
 	return &info, nil
 }
 
@@ -414,11 +401,6 @@ func DiscoverProcessOnPort(port int) (*ProcessInfo, *ProcessInfo, error) {
 		return nil, nil, err
 	}
 
-	// Build full chain including the process itself
-	fullChain := append([]ProcessInfo{*procInfo}, procInfo.ParentChain...)
-
-	// Find the launch script
-	launchScript := FindLaunchScript(fullChain)
-
-	return procInfo, launchScript, nil
+	// Note: We no longer detect parent chains or launch scripts
+	return procInfo, nil, nil
 }
