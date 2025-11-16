@@ -107,7 +107,7 @@
             font-weight: 600;
         }
         .status.running { background: #28a745; color: white; }
-        .status.running.stale { background: #6c757d; color: white; }
+        .status.running.stale { background: #adb5bd; color: white; }
         .status.stopped { background: #6c757d; color: white; }
         .status.starting { background: #ffc107; color: black; }
         .status.error { background: #dc3545; color: white; }
@@ -255,6 +255,10 @@
                 <label>Auto-refresh:</label>
                 <input type="number" id="refresh-interval" value="1" min="0" max="60" step="0.5">
                 <span>seconds</span>
+                <label style="margin-left: 15px; display: inline-flex; align-items: center; cursor: pointer;">
+                    <input type="checkbox" id="background-check" style="width: auto; margin-right: 5px;">
+                    Check in background
+                </label>
             </div>
         </div>
         <table id="instances-table">
@@ -369,10 +373,11 @@
         let lastDiscoveryUpdate = null;
         let lastRefreshTime = null;
         let isDataStale = false;
+        let isPageVisible = true;
 
         // Check if data is stale
         function checkStaleness() {
-            if (!lastRefreshTime) {
+            if (!lastInstancesUpdate) {
                 isDataStale = false;
                 return;
             }
@@ -383,9 +388,10 @@
                 return;
             }
 
-            const timeSinceRefresh = (Date.now() - lastRefreshTime) / 1000;
+            const timeSinceRefresh = (Date.now() - lastInstancesUpdate) / 1000;
             const wasStale = isDataStale;
-            isDataStale = timeSinceRefresh > (interval * 1.5); // Mark stale if 1.5x interval has passed
+            // Mark stale if refresh interval + 5 seconds has passed (matches red threshold)
+            isDataStale = timeSinceRefresh >= (interval + 5);
 
             // Re-render if staleness state changed
             if (wasStale !== isDataStale) {
@@ -396,12 +402,17 @@
         // Initialize refresh interval
         function updateRefreshInterval() {
             const interval = parseFloat(document.getElementById('refresh-interval').value);
+            const backgroundCheck = document.getElementById('background-check').checked;
 
             if (refreshIntervalId) {
                 clearInterval(refreshIntervalId);
+                refreshIntervalId = null;
             }
 
-            if (interval > 0) {
+            // Only start auto-refresh if interval > 0 AND either:
+            // - backgroundCheck is enabled, OR
+            // - page is visible
+            if (interval > 0 && (backgroundCheck || isPageVisible)) {
                 refreshIntervalId = setInterval(loadInstances, interval * 1000);
             }
         }
@@ -415,11 +426,16 @@
                 const ageSeconds = (now - lastInstancesUpdate) / 1000;
                 const dot = document.getElementById('instances-freshness-dot');
                 const text = document.getElementById('instances-freshness-text');
+                const refreshInterval = parseFloat(document.getElementById('refresh-interval').value);
 
-                if (ageSeconds < 2) {
+                // Dynamic thresholds based on refresh interval
+                const greenThreshold = refreshInterval + 2;
+                const yellowThreshold = refreshInterval + 5;
+
+                if (ageSeconds < greenThreshold) {
                     dot.className = 'freshness-dot fresh';
                     text.textContent = `Live (${ageSeconds.toFixed(1)}s ago)`;
-                } else if (ageSeconds < 5) {
+                } else if (ageSeconds < yellowThreshold) {
                     dot.className = 'freshness-dot stale';
                     text.textContent = `${ageSeconds.toFixed(1)}s ago`;
                 } else {
@@ -453,12 +469,24 @@
         // Listen for refresh interval changes
         document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('refresh-interval').addEventListener('change', updateRefreshInterval);
+            document.getElementById('background-check').addEventListener('change', updateRefreshInterval);
             updateRefreshInterval();
 
             // Start freshness indicator updates
             freshnessIntervalId = setInterval(updateFreshnessIndicators, 1000);
             // Check for staleness every second
             setInterval(checkStaleness, 1000);
+
+            // Handle page visibility changes
+            document.addEventListener('visibilitychange', () => {
+                isPageVisible = !document.hidden;
+                updateRefreshInterval();
+
+                // If page became visible and auto-refresh is enabled, immediately refresh
+                if (isPageVisible && parseFloat(document.getElementById('refresh-interval').value) > 0) {
+                    loadInstances();
+                }
+            });
         });
 
         async function loadInstances() {
@@ -521,11 +549,12 @@
             // Build new HTML
             const newHTML = instancesArray.map(i => {
                 const actions = [];
+                const staleClass = isDataStale ? ' stale' : '';
 
                 if (i.status === 'running') {
                     actions.push(`<button class="small action-start" onclick="stopInstance('${i.name}')">Stop</button>`);
                 } else if (i.status === 'stopped') {
-                    actions.push(`<button class="small action-start" onclick="restartInstance('${i.name}')">Start</button>`);
+                    actions.push(`<button class="small action-start${staleClass}" onclick="restartInstance('${i.name}')">Start</button>`);
                 }
 
                 actions.push(`<button class="small action" onclick="addAsTemplate('${i.name}')">+</button>`);

@@ -195,6 +195,11 @@ func handleServe(args []string) {
 		fmt.Fprintf(os.Stderr, "Warning: discovery failed: %v\n", err)
 	}
 
+	// Start watching config file for changes
+	if err := state.WatchConfig(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to start config watcher: %v\n", err)
+	}
+
 	fmt.Printf("Starting web UI on http://localhost:%s\n", port)
 	if err := ServeHTTP(":" + port); err != nil {
 		fmt.Fprintf(os.Stderr, "Error starting server: %v\n", err)

@@ -1,13 +1,13 @@
-# Vibe Processmanager
+# Visual Processmanager 
 
 **Process orchestration with zero assumptions**
 
-Visual Processmanager is an ultra-lean process manager built on a radical philosophy: make **zero assumptions** about what resources are or how they work. Everything is user-defined through simple shell commands or great Web UX.
+Visual Processmanager is an ultra-lean and ultra-flexible process manager built on a radical philosophy: make **zero assumptions** about what resources are or how they work. Everything is user-defined through simple shell commands or great Web UX.
 
 ## Philosophy
 
 - **Minimal LoC** - Brutally simple
-- **Zero dependencies** - stdlib only
+- **Almost no dependencies** - mostly stdlib 
 - **Generic resources** - Not opinionated about ports, files, GPUs, etc.
 - **Validation via shell commands** - Use any tool (nc, test, nvidia-smi, lmutil)
 - **Pure mechanism, no policy** - Like firmware that provides primitives
@@ -27,18 +27,6 @@ go build -o vp
 ./vp stop mydb
 ```
 
-## Architecture
-
-```
-vp/
-├── main.go          # CLI entry point (~80 lines)
-├── state.go         # State persistence (~100 lines)
-├── process.go       # Process lifecycle (~150 lines)
-├── resource.go      # Generic resource system (~100 lines)
-├── api.go           # HTTP server (~70 lines)
-└── web.html         # Embedded UI (single page)
-```
-
 ## Resource System
 
 Resources are just **type:value pairs** validated by **shell commands**:
@@ -49,6 +37,8 @@ tcpport   -> nc -z localhost ${value}
 vncport   -> nc -z localhost ${value}
 dbfile    -> test -f ${value}
 socket    -> test -S ${value}
+
+The only special resource is workdir, which is where an instance is run.
 
 # Add custom resources
 vp resource-type add gpu --check='nvidia-smi -L | grep GPU-${value}'
@@ -111,18 +101,8 @@ Features:
 - Add templates via form
 - Add resource types via form
 - View resource allocations
-- Auto-refresh every 5 seconds
-
-## Why This Design is Genius
-
-1. **Zero Hardcoded Assumptions** - Resources aren't hardcoded
-2. **Maximum Flexibility** - Add ANY resource type at runtime
-3. **Validation via Shell** - Use any installed tool
-4. **Counter Resources Not Special-Cased** - Just a boolean flag
-5. **Brutally Simple** - 6 files, ~500 lines
-6. **Firmware-Style** - Pure primitives, users configure behavior
-7. **Debuggable** - Human-readable JSON state
-8. **Extensible Without Code Changes** - Add types via CLI
+- Auto-refresh
+- Responsive
 
 ## State Storage
 
@@ -166,16 +146,3 @@ vp resource-type add dbconn \
 vp start webapp api --dbconn=localhost:5432/mydb
 ```
 
-## Design for Mars
-
-**This is how you design for Mars - assume nothing, enable everything.**
-
-Want GPU allocation? Add a resource type.
-Want license servers? Add a resource type.
-Want database connections? Add a resource type.
-Want anything? Just define a check command.
-
----
-
-See [PLAN.md](PLAN.md) for implementation details.
-See [PRD.md](PRD.md) for product requirements.
