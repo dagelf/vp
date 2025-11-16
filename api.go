@@ -25,6 +25,7 @@ func ServeHTTP(addr string) error {
 	http.HandleFunc("/api/discover-port", handleDiscoverPort)
 	http.HandleFunc("/api/config", handleConfig)
 	http.HandleFunc("/api/monitor", handleMonitor)
+	http.HandleFunc("/api/execute-action", handleExecuteAction)
 
 	return http.ListenAndServe(addr, nil)
 }
@@ -332,4 +333,42 @@ func handleDiscoverPort(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(inst)
+}
+
+func handleExecuteAction(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		InstanceName string `json:"instance_name"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	inst := state.Instances[req.InstanceName]
+	if inst == nil {
+		http.Error(w, "instance not found", http.StatusNotFound)
+		return
+	}
+
+	if inst.Action == "" {
+		http.Error(w, "no action defined for this instance", http.StatusBadRequest)
+		return
+	}
+
+	// Execute the action command
+	err := ExecuteAction(inst.Action)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to execute action: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{"status": "executed", "action": inst.Action})
 }
