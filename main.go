@@ -280,7 +280,11 @@ func showTemplate(id string) {
 		os.Exit(1)
 	}
 
-	data, _ := json.MarshalIndent(tmpl, "", "  ")
+	data, err := json.MarshalIndent(tmpl, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error formatting template: %v\n", err)
+		os.Exit(1)
+	}
 	fmt.Println(string(data))
 }
 
@@ -447,7 +451,11 @@ func handleInspect(args []string) {
 	}
 
 	// Pretty print the instance details
-	data, _ := json.MarshalIndent(inst, "", "  ")
+	data, err := json.MarshalIndent(inst, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error formatting instance: %v\n", err)
+		os.Exit(1)
+	}
 	fmt.Println(string(data))
 
 	// Additional formatted output for better readability

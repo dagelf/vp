@@ -179,12 +179,12 @@
     <p class="subtitle">Firmware-style process orchestration with zero assumptions</p>
 
     <div class="tabs">
-        <button class="tab active" onclick="showTab('instances')">Instances</button>
-        <button class="tab" onclick="showTab('discover')">Discovery</button>
-        <button class="tab" onclick="showTab('templates')">Templates</button>
-        <button class="tab" onclick="showTab('resources')">Resources</button>
-        <button class="tab" onclick="showTab('types')">Resource Types</button>
-        <button class="tab" onclick="showTab('config')">Configuration</button>
+        <button class="tab active" onclick="showTab('instances', event)">Instances</button>
+        <button class="tab" onclick="showTab('discover', event)">Discovery</button>
+        <button class="tab" onclick="showTab('templates', event)">Templates</button>
+        <button class="tab" onclick="showTab('resources', event)">Resources</button>
+        <button class="tab" onclick="showTab('types', event)">Resource Types</button>
+        <button class="tab" onclick="showTab('config', event)">Configuration</button>
     </div>
 
     <!-- Instances Tab -->
@@ -601,11 +601,22 @@
             return text.replace(/[&<>"']/g, m => map[m]);
         }
 
-        function showTab(tabName) {
+        function showTab(tabName, event) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
 
-            event.target.classList.add('active');
+            // Find and activate the tab button
+            if (event && event.target) {
+                event.target.classList.add('active');
+            } else {
+                // Fallback: find the tab button by data attribute or text
+                const tabs = document.querySelectorAll('.tab');
+                tabs.forEach(tab => {
+                    if (tab.getAttribute('onclick') && tab.getAttribute('onclick').includes(tabName)) {
+                        tab.classList.add('active');
+                    }
+                });
+            }
             document.getElementById(tabName + '-tab').classList.add('active');
 
             if (tabName === 'instances') loadInstances();

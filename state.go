@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 // State holds all application state
 type State struct {
+	mu        sync.RWMutex               // Protects concurrent access to state
 	Instances map[string]*Instance       `json:"instances"` // name -> Instance
 	Templates map[string]*Template       `json:"templates"` // id -> Template
 	Resources map[string]*Resource       `json:"resources"` // type:value -> Resource
@@ -17,7 +19,11 @@ type State struct {
 
 // LoadState loads state from ~/.vibeprocess/state.json
 func LoadState() *State {
-	homeDir, _ := os.UserHomeDir()
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		// Fallback to /tmp if home directory cannot be determined
+		homeDir = "/tmp"
+	}
 	stateFile := filepath.Join(homeDir, ".vibeprocess", "state.json")
 
 	data, err := os.ReadFile(stateFile)
@@ -73,7 +79,14 @@ func LoadState() *State {
 
 // Save persists state to ~/.vibeprocess/state.json
 func (s *State) Save() error {
-	homeDir, _ := os.UserHomeDir()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		// Fallback to /tmp if home directory cannot be determined
+		homeDir = "/tmp"
+	}
 	stateDir := filepath.Join(homeDir, ".vibeprocess")
 
 	// Create directory if it doesn't exist
@@ -92,6 +105,9 @@ func (s *State) Save() error {
 
 // ClaimResource claims a resource for an instance
 func (s *State) ClaimResource(rtype, value, owner string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	key := rtype + ":" + value
 	s.Resources[key] = &Resource{
 		Type:  rtype,
@@ -102,6 +118,9 @@ func (s *State) ClaimResource(rtype, value, owner string) {
 
 // ReleaseResources releases all resources owned by an instance
 func (s *State) ReleaseResources(owner string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	for key, res := range s.Resources {
 		if res.Owner == owner {
 			delete(s.Resources, key)

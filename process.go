@@ -403,7 +403,7 @@ func DiscoverAndImportProcessOnPort(state *State, port int, name string) (*Insta
 	}
 
 	// Discover process on port
-	procInfo, _, err := DiscoverProcessOnPort(port)
+	procInfo, err := DiscoverProcessOnPort(port)
 	if err != nil {
 		return nil, fmt.Errorf("failed to discover process on port %d: %w", port, err)
 	}

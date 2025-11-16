@@ -3,6 +3,7 @@ package main
 import (
 	_ "embed"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 )
@@ -102,7 +103,10 @@ func handleInstances(w http.ResponseWriter, r *http.Request) {
 
 			// Stop the process if it's running
 			if inst.Status == "running" {
-				StopProcess(state, inst)
+				if err := StopProcess(state, inst); err != nil {
+					http.Error(w, fmt.Sprintf("failed to stop process: %v", err), http.StatusInternalServerError)
+					return
+				}
 			}
 
 			state.ReleaseResources(req.InstanceID)

@@ -7,7 +7,22 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
+
+// portCache caches port-to-PID mappings to avoid repeated /proc/net/tcp reads
+type portCache struct {
+	sync.RWMutex
+	mapping   map[int][]int // port -> []pid
+	timestamp time.Time
+	ttl       time.Duration
+}
+
+var globalPortCache = &portCache{
+	mapping: make(map[int][]int),
+	ttl:     500 * time.Millisecond, // Cache for 500ms
+}
 
 // ProcessInfo contains detailed information about a discovered process
 type ProcessInfo struct {
@@ -34,7 +49,121 @@ var ShellNames = map[string]bool{
 	"csh":     true,
 }
 
-// ReadProcessInfo reads process information from /proc/[pid]
+// buildPortToProcessMap builds a map of all listening ports to PIDs (optimized version)
+func buildPortToProcessMap() (map[int][]int, error) {
+	// Check cache first
+	globalPortCache.RLock()
+	if time.Since(globalPortCache.timestamp) < globalPortCache.ttl {
+		result := make(map[int][]int)
+		for k, v := range globalPortCache.mapping {
+			result[k] = v
+		}
+		globalPortCache.RUnlock()
+		return result, nil
+	}
+	globalPortCache.RUnlock()
+
+	// Build new mapping
+	portToPIDs := make(map[int][]int)
+	inodeToPort := make(map[string]int)
+
+	// Parse /proc/net/tcp and /proc/net/tcp6 once
+	for _, tcpFile := range []string{"/proc/net/tcp", "/proc/net/tcp6"} {
+		file, err := os.Open(tcpFile)
+		if err != nil {
+			continue
+		}
+
+		scanner := bufio.NewScanner(file)
+		scanner.Scan() // Skip header
+
+		for scanner.Scan() {
+			fields := strings.Fields(scanner.Text())
+			if len(fields) < 10 {
+				continue
+			}
+
+			// Field 3 is connection state (0A = LISTEN)
+			if fields[3] != "0A" {
+				continue
+			}
+
+			// Parse port from local_address (IP:PORT in hex)
+			localAddr := fields[1]
+			parts := strings.Split(localAddr, ":")
+			if len(parts) != 2 {
+				continue
+			}
+
+			portNum, err := strconv.ParseInt(parts[1], 16, 64)
+			if err != nil {
+				continue
+			}
+
+			// Store inode -> port mapping
+			inode := fields[9]
+			inodeToPort[inode] = int(portNum)
+		}
+		file.Close()
+	}
+
+	// Now scan /proc to find PIDs for each inode (batched approach)
+	procDir, err := os.Open("/proc")
+	if err != nil {
+		return nil, err
+	}
+	defer procDir.Close()
+
+	entries, err := procDir.Readdirnames(-1)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, entry := range entries {
+		// Check if entry is a PID (numeric)
+		pid, err := strconv.Atoi(entry)
+		if err != nil {
+			continue
+		}
+
+		// Read all FDs for this PID
+		fdDir := filepath.Join("/proc", entry, "fd")
+		fds, err := os.ReadDir(fdDir)
+		if err != nil {
+			continue
+		}
+
+		for _, fd := range fds {
+			link, err := os.Readlink(filepath.Join(fdDir, fd.Name()))
+			if err != nil {
+				continue
+			}
+
+			// Check if it's a socket
+			if !strings.HasPrefix(link, "socket:[") {
+				continue
+			}
+
+			inode := strings.TrimPrefix(link, "socket:[")
+			inode = strings.TrimSuffix(inode, "]")
+
+			// Check if this inode corresponds to a listening port
+			if port, exists := inodeToPort[inode]; exists {
+				portToPIDs[port] = append(portToPIDs[port], pid)
+			}
+		}
+	}
+
+	// Update cache
+	globalPortCache.Lock()
+	globalPortCache.mapping = portToPIDs
+	globalPortCache.timestamp = time.Now()
+	globalPortCache.Unlock()
+
+	return portToPIDs, nil
+}
+
+// ReadProcessInfo reads process information from /proc/[pid] (optimized version)
 func ReadProcessInfo(pid int) (*ProcessInfo, error) {
 	procDir := fmt.Sprintf("/proc/%d", pid)
 
@@ -189,196 +318,42 @@ func IsShell(name string) bool {
 	return ShellNames[name]
 }
 
-// GetPortsForProcess finds all TCP ports that a specific process is listening on
+// GetPortsForProcess finds all TCP ports that a specific process is listening on (optimized)
 func GetPortsForProcess(pid int) ([]int, error) {
-	// Get all socket inodes for this process
-	socketInodes := make(map[string]bool)
-	fdDir := filepath.Join("/proc", strconv.Itoa(pid), "fd")
-
-	fds, err := os.ReadDir(fdDir)
+	// Use the cached port-to-PID mapping
+	portMap, err := buildPortToProcessMap()
 	if err != nil {
 		return nil, err
 	}
 
-	for _, fd := range fds {
-		link, err := os.Readlink(filepath.Join(fdDir, fd.Name()))
-		if err != nil {
-			continue
+	// Find all ports where this PID appears
+	result := make([]int, 0)
+	for port, pids := range portMap {
+		for _, p := range pids {
+			if p == pid {
+				result = append(result, port)
+				break
+			}
 		}
-		// Socket links look like "socket:[12345]"
-		if strings.HasPrefix(link, "socket:[") {
-			inode := strings.TrimPrefix(link, "socket:[")
-			inode = strings.TrimSuffix(inode, "]")
-			socketInodes[inode] = true
-		}
-	}
-
-	if len(socketInodes) == 0 {
-		return []int{}, nil
-	}
-
-	// Now scan /proc/net/tcp and /proc/net/tcp6 for these inodes
-	ports := make(map[int]bool)
-
-	for _, tcpFile := range []string{"/proc/net/tcp", "/proc/net/tcp6"} {
-		file, err := os.Open(tcpFile)
-		if err != nil {
-			continue
-		}
-		defer file.Close()
-
-		scanner := bufio.NewScanner(file)
-		scanner.Scan() // Skip header
-
-		for scanner.Scan() {
-			fields := strings.Fields(scanner.Text())
-			if len(fields) < 10 {
-				continue
-			}
-
-			// Field 3 is connection state (0A = LISTEN)
-			if fields[3] != "0A" {
-				continue // Only interested in listening sockets
-			}
-
-			// Field 9 is inode
-			inode := fields[9]
-
-			// Check if this inode belongs to our process
-			if !socketInodes[inode] {
-				continue
-			}
-
-			// Field 1 is local_address in format "IP:PORT" (hex)
-			localAddr := fields[1]
-			parts := strings.Split(localAddr, ":")
-			if len(parts) != 2 {
-				continue
-			}
-
-			// Parse port (hex)
-			portHex := parts[1]
-			portNum, err := strconv.ParseInt(portHex, 16, 64)
-			if err != nil {
-				continue
-			}
-
-			ports[int(portNum)] = true
-		}
-	}
-
-	// Convert map to slice
-	result := make([]int, 0, len(ports))
-	for port := range ports {
-		result = append(result, port)
 	}
 
 	return result, nil
 }
 
-// GetProcessesListeningOnPort finds all processes listening on a specific TCP port
+// GetProcessesListeningOnPort finds all processes listening on a specific TCP port (optimized)
 func GetProcessesListeningOnPort(port int) ([]int, error) {
-	// Read /proc/net/tcp and /proc/net/tcp6
-	pids := make(map[int]bool)
-
-	// Parse tcp files
-	for _, tcpFile := range []string{"/proc/net/tcp", "/proc/net/tcp6"} {
-		file, err := os.Open(tcpFile)
-		if err != nil {
-			continue
-		}
-		defer file.Close()
-
-		scanner := bufio.NewScanner(file)
-		scanner.Scan() // Skip header
-
-		for scanner.Scan() {
-			fields := strings.Fields(scanner.Text())
-			if len(fields) < 10 {
-				continue
-			}
-
-			// Field 1 is local_address in format "IP:PORT" (hex)
-			localAddr := fields[1]
-			parts := strings.Split(localAddr, ":")
-			if len(parts) != 2 {
-				continue
-			}
-
-			// Parse port (hex)
-			portHex := parts[1]
-			portNum, err := strconv.ParseInt(portHex, 16, 64)
-			if err != nil {
-				continue
-			}
-
-			// Check if this is the port we're looking for
-			if int(portNum) != port {
-				continue
-			}
-
-			// Field 9 is inode
-			inode := fields[9]
-
-			// Find process using this socket
-			pid, err := findProcessByInode(inode)
-			if err == nil {
-				pids[pid] = true
-			}
-		}
-	}
-
-	// Convert map to slice
-	result := make([]int, 0, len(pids))
-	for pid := range pids {
-		result = append(result, pid)
-	}
-
-	return result, nil
-}
-
-// findProcessByInode searches /proc/*/fd/* for the given socket inode
-func findProcessByInode(inode string) (int, error) {
-	socketRef := fmt.Sprintf("socket:[%s]", inode)
-
-	procDir, err := os.Open("/proc")
+	// Use the cached port-to-PID mapping
+	portMap, err := buildPortToProcessMap()
 	if err != nil {
-		return 0, err
-	}
-	defer procDir.Close()
-
-	entries, err := procDir.Readdirnames(-1)
-	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
-	for _, entry := range entries {
-		// Check if entry is a PID (numeric)
-		pid, err := strconv.Atoi(entry)
-		if err != nil {
-			continue
-		}
-
-		// Check all file descriptors
-		fdDir := filepath.Join("/proc", entry, "fd")
-		fds, err := os.ReadDir(fdDir)
-		if err != nil {
-			continue
-		}
-
-		for _, fd := range fds {
-			link, err := os.Readlink(filepath.Join(fdDir, fd.Name()))
-			if err != nil {
-				continue
-			}
-
-			if link == socketRef {
-				return pid, nil
-			}
-		}
+	// Return PIDs for this port
+	if pids, exists := portMap[port]; exists {
+		return pids, nil
 	}
 
-	return 0, fmt.Errorf("no process found for inode %s", inode)
+	return []int{}, nil
 }
 
 // DiscoverProcess discovers a process and its launch context
@@ -399,26 +374,25 @@ func DiscoverProcess(pid int) (*ProcessInfo, error) {
 	return &info, nil
 }
 
-// DiscoverProcessOnPort discovers the process listening on a port and finds its launch script
-func DiscoverProcessOnPort(port int) (*ProcessInfo, *ProcessInfo, error) {
+// DiscoverProcessOnPort discovers the process listening on a port
+func DiscoverProcessOnPort(port int) (*ProcessInfo, error) {
 	pids, err := GetProcessesListeningOnPort(port)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	if len(pids) == 0 {
-		return nil, nil, fmt.Errorf("no process listening on port %d", port)
+		return nil, fmt.Errorf("no process listening on port %d", port)
 	}
 
 	// Use the first PID found
 	pid := pids[0]
 
-	// Get full process info with parent chain
+	// Get full process info
 	procInfo, err := DiscoverProcess(pid)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	// Note: We no longer detect parent chains or launch scripts
-	return procInfo, nil, nil
+	return procInfo, nil
 }
