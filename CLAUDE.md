@@ -13,6 +13,31 @@ Want database connections? Add a resource type.
 Want anything? Just define a check command.
 Interact with anything? Just add an action. 
 
+## Design Principles
+
+1. **Zero Hardcoded Assumptions** - Resources aren't hardcoded
+2. **Maximum Flexibility** - Add ANY resource type at runtime
+3. **Validation via Shell** - Use any installed tool
+5. **Brutally Simple** - 6 files, ~500 lines
+6. **Firmware-Style** - Pure primitives, users configure behavior
+7. **Debuggable** - Human-readable JSON state
+8. **Extensible Without Code Changes** - Add types via CLI
+
+## Design Constraints
+
+**Maintain:**
+- Minimal LoC (currently ~2400 lines)
+- Single binary, no dependencies beyond stdlib
+- All state in one JSON file
+- Zero resource type assumptions
+- Shell commands for validation
+
+**Avoid:**
+- Framework dependencies
+- Complex abstractions
+- Special-casing resource types
+- Breaking single-JSON-file invariant
+
 ## Architecture
 
 ```
@@ -92,7 +117,7 @@ Hot-reload via inotify when file changes externally.
 - [ ] Bulk operations (stop-all, restart-all by tag, default tags)
 - [ ] Health checks (periodic validation + auto-restart)
 
-### Long-term - to be decided. Would ruin the simplicity and there are other tools for this already
+### Long-term? - to be decided. Would ruin the simplicity and there are other tools for this already
 - [ ] Log capture (stdout/stderr to files)
 - [ ] Resource limits (CPU/mem via cgroups)
 - [ ] Dependency chains (start B after A running)
@@ -104,18 +129,3 @@ Hot-reload via inotify when file changes externally.
 - [ ] Audit log (who started/stopped what when)
 - [ ] API authentication/authorization
 - [ ] Plugin system for custom resource validators
-
-## Design Constraints
-
-**Maintain:**
-- Minimal LoC (currently ~2400 lines)
-- Single binary, no dependencies beyond stdlib
-- All state in one JSON file
-- Zero resource type assumptions
-- Shell commands for validation
-
-**Avoid:**
-- Framework dependencies
-- Complex abstractions
-- Special-casing resource types
-- Breaking single-JSON-file invariant
