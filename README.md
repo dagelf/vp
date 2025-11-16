@@ -7,7 +7,7 @@ Visual Processmanager is an ultra-lean process manager built on a radical philos
 ## Philosophy
 
 - **Minimal LoC** - Brutally simple
-- **Zero dependencies** - stdlib only
+- **Almost no dependencies** - mostly stdlib 
 - **Generic resources** - Not opinionated about ports, files, GPUs, etc.
 - **Validation via shell commands** - Use any tool (nc, test, nvidia-smi, lmutil)
 - **Pure mechanism, no policy** - Like firmware that provides primitives
@@ -49,6 +49,8 @@ tcpport   -> nc -z localhost ${value}
 vncport   -> nc -z localhost ${value}
 dbfile    -> test -f ${value}
 socket    -> test -S ${value}
+
+The only special resource is workdir, which is where an instance is run.
 
 # Add custom resources
 vp resource-type add gpu --check='nvidia-smi -L | grep GPU-${value}'
@@ -168,14 +170,9 @@ vp start webapp api --dbconn=localhost:5432/mydb
 
 ## Design for Mars
 
-**This is how you design for Mars - assume nothing, enable everything.**
+**Assume nothing, enable everything.**
 
 Want GPU allocation? Add a resource type.
 Want license servers? Add a resource type.
 Want database connections? Add a resource type.
 Want anything? Just define a check command.
-
----
-
-See [PLAN.md](PLAN.md) for implementation details.
-See [PRD.md](PRD.md) for product requirements.
