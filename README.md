@@ -2,7 +2,7 @@
 
 **Process orchestration with zero assumptions**
 
-Visual Processmanager is an ultra-lean process manager built on a radical philosophy: make **zero assumptions** about what resources are or how they work. Everything is user-defined through simple shell commands or great Web UX.
+Visual Processmanager is an ultra-lean and ultra-flexible process manager built on a radical philosophy: make **zero assumptions** about what resources are or how they work. Everything is user-defined through simple shell commands or great Web UX.
 
 ## Philosophy
 
@@ -168,11 +168,3 @@ vp resource-type add dbconn \
 vp start webapp api --dbconn=localhost:5432/mydb
 ```
 
-## Design for Mars
-
-**Assume nothing, enable everything.**
-
-Want GPU allocation? Add a resource type.
-Want license servers? Add a resource type.
-Want database connections? Add a resource type.
-Want anything? Just define a check command.
