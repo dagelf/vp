@@ -384,20 +384,6 @@ func handleDiscoverCLI(args []string) {
 	fmt.Printf("Discovered and imported process: %s\n", inst.Name)
 	fmt.Printf("  PID:     %d\n", inst.PID)
 	fmt.Printf("  Command: %s\n", inst.Command)
-
-	if inst.LaunchScript != nil {
-		fmt.Printf("\nLaunch script (child of shell):\n")
-		fmt.Printf("  Command: %s\n", inst.LaunchScript.Cmdline)
-		fmt.Printf("  CWD:     %s\n", inst.LaunchScript.Cwd)
-		fmt.Printf("  Exe:     %s\n", inst.LaunchScript.Exe)
-	}
-
-	if len(inst.ParentChain) > 0 {
-		fmt.Printf("\nParent chain:\n")
-		for i, parent := range inst.ParentChain {
-			fmt.Printf("  [%d] PID %d: %s (cwd: %s)\n", i, parent.PID, parent.Name, parent.Cwd)
-		}
-	}
 }
 
 func handleDiscoverPortCLI(args []string) {
@@ -424,20 +410,6 @@ func handleDiscoverPortCLI(args []string) {
 	fmt.Printf("Discovered and imported process on port %d: %s\n", port, inst.Name)
 	fmt.Printf("  PID:     %d\n", inst.PID)
 	fmt.Printf("  Command: %s\n", inst.Command)
-
-	if inst.LaunchScript != nil {
-		fmt.Printf("\nLaunch script (child of shell):\n")
-		fmt.Printf("  Command: %s\n", inst.LaunchScript.Cmdline)
-		fmt.Printf("  CWD:     %s\n", inst.LaunchScript.Cwd)
-		fmt.Printf("  Exe:     %s\n", inst.LaunchScript.Exe)
-	}
-
-	if len(inst.ParentChain) > 0 {
-		fmt.Printf("\nParent chain:\n")
-		for i, parent := range inst.ParentChain {
-			fmt.Printf("  [%d] PID %d: %s (cwd: %s)\n", i, parent.PID, parent.Name, parent.Cwd)
-		}
-	}
 }
 
 func handleInspect(args []string) {
@@ -470,41 +442,7 @@ func handleInspect(args []string) {
 	fmt.Printf("PID:      %d\n", inst.PID)
 	fmt.Printf("Template: %s\n", inst.Template)
 	fmt.Printf("Command:  %s\n", inst.Command)
-
-	if inst.Discovered {
-		fmt.Printf("\n--- Discovery Information ---\n")
-		fmt.Printf("This process was discovered (not started by vp)\n")
-
-		if inst.LaunchScript != nil {
-			fmt.Printf("\nLaunch Script (child of shell):\n")
-			fmt.Printf("  PID:     %d\n", inst.LaunchScript.PID)
-			fmt.Printf("  Name:    %s\n", inst.LaunchScript.Name)
-			fmt.Printf("  Command: %s\n", inst.LaunchScript.Cmdline)
-			fmt.Printf("  Exe:     %s\n", inst.LaunchScript.Exe)
-			fmt.Printf("  CWD:     %s\n", inst.LaunchScript.Cwd)
-
-			if len(inst.LaunchScript.Environ) > 0 {
-				fmt.Printf("  Key Environment Variables:\n")
-				for _, key := range []string{"PATH", "HOME", "USER", "PWD", "NODE_ENV", "PYTHON_ENV"} {
-					if val, ok := inst.LaunchScript.Environ[key]; ok {
-						fmt.Printf("    %s=%s\n", key, truncate(val, 80))
-					}
-				}
-			}
-		}
-
-		if len(inst.ParentChain) > 0 {
-			fmt.Printf("\nParent Process Chain:\n")
-			for i, parent := range inst.ParentChain {
-				fmt.Printf("  [%d] PID %d: %s\n", i, parent.PID, parent.Name)
-				fmt.Printf("      Command: %s\n", truncate(parent.Cmdline, 70))
-				fmt.Printf("      CWD:     %s\n", parent.Cwd)
-				if parent.Exe != "" {
-					fmt.Printf("      Exe:     %s\n", parent.Exe)
-				}
-			}
-		}
-	}
+	fmt.Printf("Managed:  %v\n", inst.Managed)
 
 	if len(inst.Resources) > 0 {
 		fmt.Printf("\n--- Resources ---\n")

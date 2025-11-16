@@ -23,11 +23,6 @@ type Instance struct {
 	Cwd       string            `json:"cwd,omitempty"`       // Working directory
 	Managed   bool              `json:"managed"`             // true=can stop/restart, false=monitor only
 	Error     string            `json:"error,omitempty"`
-
-  // Discovery fields - populated when discovering existing processes
-	LaunchScript *ProcessInfo      `json:"launch_script,omitempty"` // The script that launched this (child of shell)
-	ParentChain  []ProcessInfo     `json:"parent_chain,omitempty"`  // Parent process chain
-	Discovered   bool              `json:"discovered,omitempty"`    // Was this discovered vs created by us?
 }
 
 // Template defines how to start a process
@@ -298,15 +293,9 @@ func MonitorProcess(state *State, pid int, name string) (*Instance, error) {
 
 	cwd := procInfo.Cwd
 
-	// Detect resources (ports)
-	resources := make(map[string]string)
-	if len(procInfo.Ports) > 0 {
-		// Just record the first port as tcpport
-		resources["tcpport"] = fmt.Sprintf("%d", procInfo.Ports[0])
-	}
-
 	// Check if we can manage this process (send signals to it)
 	managed := canManageProcess(pid)
+	resources := make(map[string]string)
 
 	inst := &Instance{
 		Name:      name,
@@ -387,24 +376,16 @@ func DiscoverAndImportProcess(state *State, pid int, name string) (*Instance, er
 		return nil, fmt.Errorf("failed to discover process: %w", err)
 	}
 
-	// Build full chain including the process itself
-	fullChain := append([]ProcessInfo{*procInfo}, procInfo.ParentChain...)
-
-	// Find the launch script
-	launchScript := FindLaunchScript(fullChain)
-
 	// Create instance
 	inst := &Instance{
-		Name:         name,
-		Template:     "discovered",
-		Command:      procInfo.Cmdline,
-		PID:          pid,
-		Status:       "running",
-		Resources:    make(map[string]string),
-		Started:      time.Now().Unix(),
-		Discovered:   true,
-		ParentChain:  procInfo.ParentChain,
-		LaunchScript: launchScript,
+		Name:      name,
+		Template:  "discovered",
+		Command:   procInfo.Cmdline,
+		PID:       pid,
+		Status:    "running",
+		Resources: make(map[string]string),
+		Started:   time.Now().Unix(),
+		Managed:   false, // Discovered processes are not managed by default
 	}
 
 	state.Instances[name] = inst
@@ -421,23 +402,21 @@ func DiscoverAndImportProcessOnPort(state *State, port int, name string) (*Insta
 	}
 
 	// Discover process on port
-	procInfo, launchScript, err := DiscoverProcessOnPort(port)
+	procInfo, _, err := DiscoverProcessOnPort(port)
 	if err != nil {
 		return nil, fmt.Errorf("failed to discover process on port %d: %w", port, err)
 	}
 
 	// Create instance
 	inst := &Instance{
-		Name:         name,
-		Template:     "discovered",
-		Command:      procInfo.Cmdline,
-		PID:          procInfo.PID,
-		Status:       "running",
-		Resources:    make(map[string]string),
-		Started:      time.Now().Unix(),
-		Discovered:   true,
-		ParentChain:  procInfo.ParentChain,
-		LaunchScript: launchScript,
+		Name:      name,
+		Template:  "discovered",
+		Command:   procInfo.Cmdline,
+		PID:       procInfo.PID,
+		Status:    "running",
+		Resources: make(map[string]string),
+		Started:   time.Now().Unix(),
+		Managed:   false, // Discovered processes are not managed by default
 	}
 
 	// Record the port as a resource
@@ -498,11 +477,11 @@ func DiscoverProcesses(state *State, portsOnly bool) ([]map[string]interface{}, 
 
 		// Build result entry
 		entry := map[string]interface{}{
-			"pid":     procInfo.PID,
-			"name":    procInfo.Name,
-			"command": procInfo.Cmdline,
-			"cwd":     procInfo.Cwd,
-			"exe":     procInfo.Exe,
+			"pid":       procInfo.PID,
+			"name":      procInfo.Name,
+			"command":   procInfo.Cmdline,
+			"cwd":       procInfo.Cwd,
+			"exe":       procInfo.Exe,
 			"ports":     procInfo.Ports,
 			"resources": map[string]string{}, // Empty resources for discovered processes
 		}
@@ -529,82 +508,27 @@ func MatchAndUpdateInstances(state *State) error {
 			continue
 		}
 
-		// Read full process info to get ports and parent chain
+		// Get process info for command matching
 		procInfo, err := ReadProcessInfo(pid)
 		if err != nil {
 			continue
 		}
 
-		// Build resources map for this process (mainly ports)
-		procResources := make(map[string]string)
-		for _, port := range procInfo.Ports {
-			procResources["tcpport"] = fmt.Sprintf("%d", port)
-			break // Just use the first port for now
-		}
-
 		// Try to match with existing instances
+		// Matching is done purely by command similarity
 		for _, inst := range state.Instances {
 			// Skip instances that are already running
 			if inst.Status == "running" && IsProcessRunning(inst.PID) {
 				continue
 			}
 
-			// Check if resources match (if instance has resources)
-			// If instance has no resources, we skip resource matching and rely on command matching
-			shouldCheckResources := len(inst.Resources) > 0
-			resourcesMatch := false
-
-			if shouldCheckResources {
-				// Instance has resources, so we need to find a match in the process
-				if len(procResources) > 0 {
-					// Check if any resource matches
-					for rtype, rvalue := range inst.Resources {
-						if procResources[rtype] == rvalue {
-							resourcesMatch = true
-							break
-						}
-					}
-				}
-				// If instance has resources but none matched, skip this instance
-				if !resourcesMatch {
-					continue
-				}
-			}
-			// If instance has no resources, we skip the resource check entirely
-			// and proceed to command matching below
-
-			// Resources match - now check if command matches
-			// Get full parent chain for the discovered process
-			fullProcInfo, err := DiscoverProcess(pid)
-			if err != nil {
-				continue
-			}
-
-			// Build list of commands to check (process + parent chain)
-			commandsToCheck := []string{fullProcInfo.Cmdline}
-			for _, parent := range fullProcInfo.ParentChain {
-				commandsToCheck = append(commandsToCheck, parent.Cmdline)
-			}
-
-			// Check if instance command matches any of the discovered commands
-			commandMatches := false
-			for _, cmd := range commandsToCheck {
-				if strings.Contains(cmd, inst.Command) || strings.Contains(inst.Command, cmd) {
-					commandMatches = true
-					break
-				}
-			}
-
-			if commandMatches {
+			// Check if command matches
+			// Use bidirectional substring matching
+			if strings.Contains(procInfo.Cmdline, inst.Command) || strings.Contains(inst.Command, procInfo.Cmdline) {
 				// Update the instance
 				inst.PID = pid
 				inst.Status = "running"
 				inst.Started = time.Now().Unix()
-
-				// Update parent chain and launch script if discovered
-				inst.ParentChain = fullProcInfo.ParentChain
-				fullChain := append([]ProcessInfo{*fullProcInfo}, fullProcInfo.ParentChain...)
-				inst.LaunchScript = FindLaunchScript(fullChain)
 
 				state.Save()
 				break // Move to next discovered process
