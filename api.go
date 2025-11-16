@@ -11,21 +11,45 @@ import (
 //go:embed web.html
 var webHTML string
 
+// corsMiddleware adds CORS headers to allow cross-origin requests
+func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Allow all origins
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		} else {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		}
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+
+		// Handle preflight OPTIONS request
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next(w, r)
+	}
+}
+
 // ServeHTTP starts the HTTP server
 func ServeHTTP(addr string) error {
 	// Web UI
 	http.HandleFunc("/", serveWeb)
 
-	// API endpoints
-	http.HandleFunc("/api/instances", handleInstances)
-	http.HandleFunc("/api/templates", handleTemplates)
-	http.HandleFunc("/api/resources", handleResources)
-	http.HandleFunc("/api/resource-types", handleResourceTypes)
-	http.HandleFunc("/api/discover", handleDiscover)
-	http.HandleFunc("/api/discover-port", handleDiscoverPort)
-	http.HandleFunc("/api/config", handleConfig)
-	http.HandleFunc("/api/monitor", handleMonitor)
-	http.HandleFunc("/api/execute-action", handleExecuteAction)
+	// API endpoints with CORS
+	http.HandleFunc("/api/instances", corsMiddleware(handleInstances))
+	http.HandleFunc("/api/templates", corsMiddleware(handleTemplates))
+	http.HandleFunc("/api/resources", corsMiddleware(handleResources))
+	http.HandleFunc("/api/resource-types", corsMiddleware(handleResourceTypes))
+	http.HandleFunc("/api/discover", corsMiddleware(handleDiscover))
+	http.HandleFunc("/api/discover-port", corsMiddleware(handleDiscoverPort))
+	http.HandleFunc("/api/config", corsMiddleware(handleConfig))
+	http.HandleFunc("/api/monitor", corsMiddleware(handleMonitor))
+	http.HandleFunc("/api/execute-action", corsMiddleware(handleExecuteAction))
 
 	return http.ListenAndServe(addr, nil)
 }
@@ -243,6 +267,9 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 		if newState.Types == nil {
 			newState.Types = make(map[string]*ResourceType)
 		}
+		if newState.RemotesAllowed == nil {
+			newState.RemotesAllowed = make(map[string]bool)
+		}
 
 		// Update global state
 		state.Instances = newState.Instances
@@ -250,6 +277,7 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 		state.Resources = newState.Resources
 		state.Counters = newState.Counters
 		state.Types = newState.Types
+		state.RemotesAllowed = newState.RemotesAllowed
 
 		// Save to disk
 		state.Save()
@@ -340,6 +368,32 @@ func handleExecuteAction(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method != "POST" {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get origin from request
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		// If no origin header, it's a same-origin request (allow)
+		origin = "localhost"
+	}
+
+	// Check if origin is allowed
+	state.mu.Lock()
+	allowed, exists := state.RemotesAllowed[origin]
+	if !exists {
+		// First time seeing this origin - add it as blocked
+		state.RemotesAllowed[origin] = false
+		state.Save()
+		state.mu.Unlock()
+
+		http.Error(w, fmt.Sprintf("Remote origin '%s' not allowed. Enable it in configuration under remotes_allowed to execute actions.", origin), http.StatusForbidden)
+		return
+	}
+	state.mu.Unlock()
+
+	if !allowed {
+		http.Error(w, fmt.Sprintf("Remote origin '%s' is blocked. Set to true in configuration under remotes_allowed to execute actions.", origin), http.StatusForbidden)
 		return
 	}
 
