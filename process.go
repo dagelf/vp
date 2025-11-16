@@ -24,6 +24,7 @@ type Instance struct {
 	Managed   bool              `json:"managed"`             // true=can stop/restart, false=monitor only
 	CPUTime   float64           `json:"cputime,omitempty"`   // CPU time in seconds
 	Error     string            `json:"error,omitempty"`
+	Action    string            `json:"action,omitempty"`    // Action to execute (URL or command)
 }
 
 // Template defines how to start a process
@@ -33,6 +34,7 @@ type Template struct {
 	Command   string            `json:"command"`   // Template with ${var} and %counter
 	Resources []string          `json:"resources"` // Resource types this needs
 	Vars      map[string]string `json:"vars"`      // Default variables
+	Action    string            `json:"action,omitempty"`    // Action to execute (URL or command)
 }
 
 // StartProcess creates and starts a process instance from a template
@@ -105,6 +107,19 @@ func StartProcess(state *State, template *Template, name string, vars map[string
 	}
 
 	inst.Command = cmd
+
+	// Interpolate action if present
+	if template.Action != "" {
+		action := template.Action
+		// Replace ${var} and resource values
+		for key, val := range finalVars {
+			action = strings.ReplaceAll(action, "${"+key+"}", val)
+		}
+		for key, val := range inst.Resources {
+			action = strings.ReplaceAll(action, "${"+key+"}", val)
+		}
+		inst.Action = action
+	}
 
 	// Phase 3: Start process
 	parts := strings.Fields(cmd)
@@ -680,4 +695,21 @@ func extractProcessName(command string) string {
 	}
 
 	return exe
+}
+
+// ExecuteAction executes an action command in the background
+func ExecuteAction(action string) error {
+	if action == "" {
+		return fmt.Errorf("empty action")
+	}
+
+	// Execute the action in the background
+	cmd := exec.Command("sh", "-c", action+" &")
+	err := cmd.Start()
+	if err != nil {
+		return fmt.Errorf("failed to start action: %v", err)
+	}
+
+	// Don't wait for it to complete, let it run in the background
+	return nil
 }

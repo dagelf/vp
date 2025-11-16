@@ -163,6 +163,15 @@
         button.action-start:hover {
             background: #40c057;
         }
+        button.action-lightning {
+            background: #ffd43b;
+            color: #333;
+            border-color: #ffd43b;
+            font-size: 16px;
+        }
+        button.action-lightning:hover {
+            background: #fcc419;
+        }
 
         .card {
             background: white;
@@ -508,6 +517,11 @@
 
                 actions.push(`<button class="small action-add" onclick="addAsTemplate('${i.name}')">+</button>`);
                 actions.push(`<button class="small action-remove" onclick="deleteInstance('${i.name}')">-</button>`);
+
+                // Add lightning button if action is defined
+                if (i.action) {
+                    actions.push(`<button class="small action-lightning" onclick="executeAction('${i.name}', '${escapeQuotes(i.action)}')">⚡</button>`);
+                }
 
                 return `
                     <tr data-instance="${i.name}">
@@ -941,6 +955,37 @@
                 loadInstances();
             } catch (err) {
                 alert('Error: ' + err.message);
+            }
+        }
+
+        function escapeQuotes(str) {
+            return str.replace(/'/g, "\\'").replace(/"/g, '\\"');
+        }
+
+        async function executeAction(instanceName, action) {
+            // Check if action is a URL
+            const urlPattern = /^(https?:\/\/|http:\/\/)/i;
+            if (urlPattern.test(action)) {
+                // Open URL in new tab
+                window.open(action, '_blank');
+            } else {
+                // Execute command via API
+                try {
+                    const response = await fetch('/api/execute-action', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            instance_name: instanceName
+                        })
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.text();
+                        alert('Error executing action: ' + error);
+                    }
+                } catch (err) {
+                    alert('Error: ' + err.message);
+                }
             }
         }
 
