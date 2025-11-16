@@ -107,6 +107,7 @@
             font-weight: 600;
         }
         .status.running { background: #28a745; color: white; }
+        .status.running.stale { background: #6c757d; color: white; }
         .status.stopped { background: #6c757d; color: white; }
         .status.starting { background: #ffc107; color: black; }
         .status.error { background: #dc3545; color: white; }
@@ -267,7 +268,7 @@
     <div id="instances-tab" class="tab-content active">
         <div class="toolbar">
             <button class="primary" onclick="showStartForm()">+ Start Instance</button>
-            <button onclick="loadInstances()">↻ Refresh</button>
+            <button class="primary" onclick="loadInstances()">↻ Refresh</button>
 
             <div class="freshness-indicator">
                 <span class="freshness-dot unknown" id="instances-freshness-dot"></span>
@@ -390,6 +391,31 @@
         let discoveredProcesses = []; // Store all discovered processes for filtering
         let lastInstancesUpdate = null;
         let lastDiscoveryUpdate = null;
+        let lastRefreshTime = null;
+        let isDataStale = false;
+
+        // Check if data is stale
+        function checkStaleness() {
+            if (!lastRefreshTime) {
+                isDataStale = false;
+                return;
+            }
+
+            const interval = parseFloat(document.getElementById('refresh-interval').value);
+            if (interval <= 0) {
+                isDataStale = false;
+                return;
+            }
+
+            const timeSinceRefresh = (Date.now() - lastRefreshTime) / 1000;
+            const wasStale = isDataStale;
+            isDataStale = timeSinceRefresh > (interval * 1.5); // Mark stale if 1.5x interval has passed
+
+            // Re-render if staleness state changed
+            if (wasStale !== isDataStale) {
+                renderInstances();
+            }
+        }
 
         // Initialize refresh interval
         function updateRefreshInterval() {
@@ -454,7 +480,9 @@
             updateRefreshInterval();
 
             // Start freshness indicator updates
-            freshnessIntervalId = setInterval(updateFreshnessIndicators, 500);
+            freshnessIntervalId = setInterval(updateFreshnessIndicators, 1000);
+            // Check for staleness every second
+            setInterval(checkStaleness, 1000);
         });
 
         async function loadInstances() {
@@ -462,9 +490,18 @@
             instances = await res.json() || {};
             lastInstancesUpdate = Date.now();
 
+            // Mark data as fresh
+            lastRefreshTime = Date.now();
+            isDataStale = false;
+
+            renderInstances();
+        }
+
+        function renderInstances() {
             const tbody = document.getElementById('instances-list');
             if (Object.keys(instances).length === 0) {
                 tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#999;">No instances running</td></tr>';
+                lastInstancesHTML = '';
                 return;
             }
 
@@ -522,11 +559,13 @@
                 if (i.action) {
                     actions.push(`<button class="small action-lightning" onclick="executeAction('${i.name}', '${escapeQuotes(i.action)}')">⚡</button>`);
                 }
+                // Add 'stale' class to running status when data is stale
+                const statusClass = i.status === 'running' && isDataStale ? `${i.status} stale` : i.status;
 
                 return `
                     <tr data-instance="${i.name}">
                         <td><strong>${i.name}</strong></td>
-                        <td><span class="status ${i.status}">${i.status}</span></td>
+                        <td><span class="status ${statusClass}">${i.status}</span></td>
                         <td>${i.pid || 'N/A'}</td>
                         <td>${formatCPUTime(i.cputime)}</td>
                         <td><span class="code">${truncate(i.command, 60)}</span></td>
