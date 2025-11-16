@@ -204,6 +204,41 @@
         .actions {
             white-space: nowrap;
         }
+
+        .freshness-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: #666;
+            margin-left: 15px;
+        }
+
+        .freshness-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .freshness-dot.fresh {
+            background: #51cf66;
+            box-shadow: 0 0 4px rgba(81, 207, 102, 0.6);
+        }
+
+        .freshness-dot.stale {
+            background: #ffd43b;
+            box-shadow: 0 0 4px rgba(255, 212, 59, 0.6);
+        }
+
+        .freshness-dot.old {
+            background: #ff6b6b;
+            box-shadow: 0 0 4px rgba(255, 107, 107, 0.6);
+        }
+
+        .freshness-dot.unknown {
+            background: #adb5bd;
+        }
     </style>
 </head>
 <body>
@@ -224,6 +259,11 @@
         <div class="toolbar">
             <button class="primary" onclick="showStartForm()">+ Start Instance</button>
             <button onclick="loadInstances()">↻ Refresh</button>
+
+            <div class="freshness-indicator">
+                <span class="freshness-dot unknown" id="instances-freshness-dot"></span>
+                <span id="instances-freshness-text">Not loaded</span>
+            </div>
 
             <div class="refresh-control">
                 <label>Auto-refresh:</label>
@@ -253,6 +293,10 @@
             <h3>Discovery Options</h3>
             <div style="margin: 15px 0;">
                 <button class="primary" onclick="discoverProcesses()">Discover Processes</button>
+                <div class="freshness-indicator" style="margin-left: 20px;">
+                    <span class="freshness-dot unknown" id="discovery-freshness-dot"></span>
+                    <span id="discovery-freshness-text">Not discovered</span>
+                </div>
             </div>
             <div style="margin: 15px 0;">
                 <label style="display: inline-flex; align-items: center; margin-right: 20px;">
@@ -330,10 +374,13 @@
         let resources = {};
         let types = {};
         let refreshIntervalId = null;
+        let freshnessIntervalId = null;
         let lastInstancesHTML = '';
         let sortColumn = 'name';
         let sortDirection = 'asc';
         let discoveredProcesses = []; // Store all discovered processes for filtering
+        let lastInstancesUpdate = null;
+        let lastDiscoveryUpdate = null;
 
         // Initialize refresh interval
         function updateRefreshInterval() {
@@ -348,15 +395,63 @@
             }
         }
 
+        // Update freshness indicators
+        function updateFreshnessIndicators() {
+            const now = Date.now();
+
+            // Update instances freshness
+            if (lastInstancesUpdate) {
+                const ageSeconds = (now - lastInstancesUpdate) / 1000;
+                const dot = document.getElementById('instances-freshness-dot');
+                const text = document.getElementById('instances-freshness-text');
+
+                if (ageSeconds < 2) {
+                    dot.className = 'freshness-dot fresh';
+                    text.textContent = `Live (${ageSeconds.toFixed(1)}s ago)`;
+                } else if (ageSeconds < 5) {
+                    dot.className = 'freshness-dot stale';
+                    text.textContent = `${ageSeconds.toFixed(1)}s ago`;
+                } else {
+                    dot.className = 'freshness-dot old';
+                    text.textContent = `${ageSeconds.toFixed(0)}s ago`;
+                }
+            }
+
+            // Update discovery freshness
+            if (lastDiscoveryUpdate) {
+                const ageSeconds = (now - lastDiscoveryUpdate) / 1000;
+                const dot = document.getElementById('discovery-freshness-dot');
+                const text = document.getElementById('discovery-freshness-text');
+
+                if (ageSeconds < 10) {
+                    dot.className = 'freshness-dot fresh';
+                    text.textContent = `Fresh (${ageSeconds.toFixed(1)}s ago)`;
+                } else if (ageSeconds < 30) {
+                    dot.className = 'freshness-dot stale';
+                    text.textContent = `${ageSeconds.toFixed(0)}s ago`;
+                } else if (ageSeconds < 300) {
+                    dot.className = 'freshness-dot old';
+                    text.textContent = `${Math.floor(ageSeconds / 60)}m ${Math.floor(ageSeconds % 60)}s ago`;
+                } else {
+                    dot.className = 'freshness-dot old';
+                    text.textContent = `${Math.floor(ageSeconds / 60)}m ago (stale)`;
+                }
+            }
+        }
+
         // Listen for refresh interval changes
         document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('refresh-interval').addEventListener('change', updateRefreshInterval);
             updateRefreshInterval();
+
+            // Start freshness indicator updates
+            freshnessIntervalId = setInterval(updateFreshnessIndicators, 500);
         });
 
         async function loadInstances() {
             const res = await fetch('/api/instances');
             instances = await res.json() || {};
+            lastInstancesUpdate = Date.now();
 
             const tbody = document.getElementById('instances-list');
             if (Object.keys(instances).length === 0) {
@@ -562,6 +657,7 @@
         async function discoverProcesses() {
             const res = await fetch(`/api/discover?ports_only=false`);
             discoveredProcesses = await res.json();
+            lastDiscoveryUpdate = Date.now();
 
             if (!discoveredProcesses || discoveredProcesses.length === 0) {
                 const table = document.getElementById('discover-table');
