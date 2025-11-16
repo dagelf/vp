@@ -1,12 +1,12 @@
-# Vibeprocess Manager
+# Visual Processmanager (formerly named Vibeprocess Manager)
 
 **Process orchestration with zero assumptions**
 
-Vibeprocess Manager is an ultra-lean process manager built on a radical philosophy: make **zero assumptions** about what resources are or how they work. Everything is user-defined through simple shell commands or great Web UX.
+Visual Processmanager is an ultra-lean process manager built on a radical philosophy: make **zero assumptions** about what resources are or how they work. Everything is user-defined through simple shell commands or great Web UX.
 
 ## Philosophy
 
-- **6 files, ~500 lines of Go** - Brutally simple
+- **Minimal LoC** - Brutally simple
 - **Zero dependencies** - stdlib only
 - **Generic resources** - Not opinionated about ports, files, GPUs, etc.
 - **Validation via shell commands** - Use any tool (nc, test, nvidia-smi, lmutil)
