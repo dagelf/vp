@@ -120,6 +120,11 @@ func StartProcess(state *State, template *Template, name string, vars map[string
 		Setpgid: true, // Create new process group
 	}
 
+	// Set working directory from workdir resource if specified
+	if workdir, ok := inst.Resources["workdir"]; ok && workdir != "" {
+		proc.Dir = workdir
+	}
+
 	if err := proc.Start(); err != nil {
 		state.ReleaseResources(name)
 		inst.Status = "error"
