@@ -471,8 +471,36 @@ func DiscoverProcesses(state *State, portsOnly bool) ([]map[string]interface{}, 
 			continue // Skip processes we can't read
 		}
 
-		// Skip kernel threads (they have empty cmdline and PPID of 2 or 0)
-		if procInfo.Cmdline == "" && (procInfo.PPID == 2 || procInfo.PPID == 0 || pid == 2) {
+		// Skip kernel threads using multiple heuristics:
+		// 1. Empty or whitespace-only cmdline with kernel thread indicators
+		// 2. Kernel thread name patterns (wrapped in brackets)
+		// 3. PPID of 0 or 2 (init/kthreadd)
+		trimmedCmd := strings.TrimSpace(procInfo.Cmdline)
+		isKernelThread := false
+
+		// Check for empty cmdline with kernel thread PPID
+		if trimmedCmd == "" && (procInfo.PPID == 2 || procInfo.PPID == 0 || pid == 2) {
+			isKernelThread = true
+		}
+
+		// Check for kernel thread name patterns
+		// Common patterns: kworker, ksoftirqd, kthreadd, kswapd, migration, watchdog, etc.
+		kernelThreadPrefixes := []string{
+			"kworker", "ksoftirqd", "kthreadd", "kswapd", "migration",
+			"watchdog", "cpuhp", "kdevtmpfs", "netns", "kauditd",
+			"khungtaskd", "oom_reaper", "writeback", "kcompactd",
+			"crypto", "kblockd", "kintegrityd", "kqueuewq", "ata_sff",
+			"scsi", "pool", "rcu", "mm_percpu", "slub",
+		}
+
+		for _, prefix := range kernelThreadPrefixes {
+			if strings.HasPrefix(procInfo.Name, prefix) && trimmedCmd == "" {
+				isKernelThread = true
+				break
+			}
+		}
+
+		if isKernelThread {
 			continue
 		}
 
