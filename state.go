@@ -9,12 +9,13 @@ import (
 
 // State holds all application state
 type State struct {
-	mu        sync.RWMutex               // Protects concurrent access to state
-	Instances map[string]*Instance       `json:"instances"` // name -> Instance
-	Templates map[string]*Template       `json:"templates"` // id -> Template
-	Resources map[string]*Resource       `json:"resources"` // type:value -> Resource
-	Counters  map[string]int             `json:"counters"`  // counter_name -> current
-	Types     map[string]*ResourceType   `json:"types"`     // Resource type definitions
+	mu             sync.RWMutex               // Protects concurrent access to state
+	Instances      map[string]*Instance       `json:"instances"`       // name -> Instance
+	Templates      map[string]*Template       `json:"templates"`       // id -> Template
+	Resources      map[string]*Resource       `json:"resources"`       // type:value -> Resource
+	Counters       map[string]int             `json:"counters"`        // counter_name -> current
+	Types          map[string]*ResourceType   `json:"types"`           // Resource type definitions
+	RemotesAllowed map[string]bool            `json:"remotes_allowed"` // origin -> allowed (true=can execute, false=blocked)
 }
 
 // LoadState loads state from ~/.vibeprocess/state.json
@@ -30,11 +31,12 @@ func LoadState() *State {
 	if err != nil {
 		// Initialize with defaults
 		return &State{
-			Instances: make(map[string]*Instance),
-			Templates: loadDefaultTemplates(),
-			Resources: make(map[string]*Resource),
-			Counters:  make(map[string]int),
-			Types:     DefaultResourceTypes(),
+			Instances:      make(map[string]*Instance),
+			Templates:      loadDefaultTemplates(),
+			Resources:      make(map[string]*Resource),
+			Counters:       make(map[string]int),
+			Types:          DefaultResourceTypes(),
+			RemotesAllowed: make(map[string]bool),
 		}
 	}
 
@@ -42,11 +44,12 @@ func LoadState() *State {
 	if err := json.Unmarshal(data, &s); err != nil {
 		// Return defaults on parse error
 		return &State{
-			Instances: make(map[string]*Instance),
-			Templates: loadDefaultTemplates(),
-			Resources: make(map[string]*Resource),
-			Counters:  make(map[string]int),
-			Types:     DefaultResourceTypes(),
+			Instances:      make(map[string]*Instance),
+			Templates:      loadDefaultTemplates(),
+			Resources:      make(map[string]*Resource),
+			Counters:       make(map[string]int),
+			Types:          DefaultResourceTypes(),
+			RemotesAllowed: make(map[string]bool),
 		}
 	}
 
@@ -72,6 +75,9 @@ func LoadState() *State {
 	}
 	if s.Counters == nil {
 		s.Counters = make(map[string]int)
+	}
+	if s.RemotesAllowed == nil {
+		s.RemotesAllowed = make(map[string]bool)
 	}
 
 	return &s
