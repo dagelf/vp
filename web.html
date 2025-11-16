@@ -789,7 +789,7 @@
                     return;
                 }
 
-                alert(`Process ${pid} added as "${name}"`);
+                // Success - just refresh without popup
                 discoverProcesses(); // Refresh discovery list
                 loadInstances(); // Refresh instances list
             } catch (err) {
