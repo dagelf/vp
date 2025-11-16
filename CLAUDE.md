@@ -1,55 +1,114 @@
-# Product Requirements Document (PRD)
+# vp - Process Orchestration
 
-## Vibeprocess Manager
+## Core Concept
 
-Process orchestration tool that provides pure primitives for process and resource management. It makes **zero assumptions** about what resources are or how they work - everything is user-defined through simple check commands. Think the Unix `ps` tool, modernized, with generic resource allocation and zero opinions.
+Zero-assumption process manager. Pure primitives for resource allocation + process control.
 
-### Current Pain Points
+**Philosophy:** Firmware-style design. No hardcoded resource types. Everything validated via shell commands.
 
-Modern servers often experience process creep: some processes are started by systemd, some in screen, and many manually. When the server experiences a failure or reboot, a lot of state goes missing - and lore about how and what to start and what was running drifts.
+## Architecture
 
-1. **Manual Process Management**: Operators must manually start/stop processes in multiple terminal windows, making it difficult to track what's running and where
-2. **Resource Conflicts**: Port collisions and file conflicts are common when running multiple instances or switching between projects in various states of development and production and update.
-3. **Configuration Complexity**: Each process requires specific environment variables, ports, and file paths that must be remembered and typed manually
-4. **Lack of Visibility**: No centralized view of running processes, resource usage, or allocated ports
-5. **Onboarding Friction**: New team members struggle to understand which processes to run and how to configure them
-6. **Connection Management**: Accessing services requires remembering connection strings and CLI commands
+```
+main.go       CLI entrypoint, command routing
+state.go      JSON persistence, inotify reload
+process.go    Lifecycle: start/stop/restart/discover/monitor
+resource.go   Generic allocation: type:value pairs + check commands
+api.go        HTTP API + embedded web UI
+procutil.go   /proc parsing, port discovery, parent chains
+web.html      Single-page UI
+```
 
-### Glossary
+## Key Concepts
 
-- **Template**: Reusable process configuration with resource requirements
-- **Instance**: Named, running process created from a template
-- **Resource**: Generic type:value pair (port, file, GPU, license, etc.)
-- **ResourceType**: User-defined resource with check command
-- **Counter**: Auto-incrementing resource type (tcpport, vncport, etc.)
-- **Check Command**: Shell command to validate resource availability
-- **Interpolation**: ${var} and %counter replacement in commands
-## Architecture Philosophy
+- **Template**: Process blueprint (command + resource requirements + default vars)
+- **Instance**: Running process from template (name + PID + status + allocated resources)
+- **ResourceType**: User-defined with shell check command (counter flag for auto-increment)
+- **Resource**: Allocated type:value pair (tcpport:3000, gpu:0, license:@server, etc)
 
-**Firmware-Style Design**: Pure mechanism, no policy. Assume nothing, enable everything.
+## Resource System
 
-### Core Principles
-1. **Zero Hardcoded Assumptions** - No opinions about what resources are
-2. **Everything is a Command** - Validation via shell commands
-3. **Six Files Total** - Brutally simple structure
-4. **Generic Resources** - Type:value pairs with check commands
-5. **Single State File** - Human-readable JSON
-6. **Pure Primitives** - Memory allocation, process control, state persistence
+```bash
+# Built-in types (defaults)
+tcpport     -> nc -z localhost ${value}  # counter: 3000-9999
+vncport     -> nc -z localhost ${value}  # counter: 5900-5999
+dbfile      -> test -f ${value}
+workdir     -> (no check, informational)
 
-### Why This Matters
-- Maximum flexibility without code changes
-- Add any resource type at runtime (GPU, license, DB, whatever)
-- Manage processess no matter how they were started
-- Validate using any installed tool (nc, test, nvidia-smi, lmutil)
-- Debuggable: all state in one JSON file
-- Extensible: shell commands = infinite possibilities
+# Add custom types at runtime
+vp resource-type add gpu --check='nvidia-smi -L | grep GPU-${value}'
+vp resource-type add license --check='lmutil lmstat -c ${value} | grep UP'
+```
 
-**Target**: minimal number of files, minimal LoC while maintaining readability, shrewd and visionary design with great planning
+Shell command exits 0 = in-use (unavailable), exits non-zero = free (available).
 
-### Phase 5: Polish & Testing
-- Error handling
-- Better configuration editing interface
-- Edge cases
-- API security
-- Example templates / template library or marketplace
+## Process Discovery
 
+Automatic matching: On every refresh, scan /proc to:
+1. Update CPU time for running instances
+2. Match stopped instances to running processes (by name + port)
+3. Discover unmanaged processes (ports only by default)
+
+Monitor mode: Import existing process as read-only instance (managed=false).
+
+## State File
+
+`~/.vibeprocess/state.json` contains everything:
+- instances: name -> Instance
+- templates: id -> Template
+- resources: type:value -> Resource
+- counters: type -> current_value
+- types: name -> ResourceType
+
+Hot-reload via inotify when file changes externally.
+
+## Implementation Status
+
+**Complete:**
+- ✓ CLI commands (start/stop/restart/delete/ps/inspect)
+- ✓ Template system with ${var} + %counter interpolation
+- ✓ Generic resource allocation + validation
+- ✓ Process discovery + matching
+- ✓ Web UI with auto-refresh
+- ✓ Config hot-reload (inotify)
+- ✓ CPU time tracking
+- ✓ Monitor mode for existing processes
+- ✓ Action execution (URLs/commands)
+
+**Roadmap:**
+
+### Short-term
+- [ ] Template library/marketplace (shareable templates)
+- [ ] Better error messages (resource conflicts, validation failures)
+- [ ] Bulk operations (stop-all, restart-all by tag)
+- [ ] Resource tags/grouping (dev/prod/test)
+- [ ] Log capture (stdout/stderr to files)
+
+### Medium-term
+- [ ] Process groups (start multiple related instances)
+- [ ] Health checks (periodic validation + auto-restart)
+- [ ] Resource limits (CPU/mem via cgroups)
+- [ ] Dependency chains (start B after A running)
+- [ ] Template inheritance (extend base templates)
+
+### Long-term
+- [ ] Multi-host coordination (cluster mode)
+- [ ] Time-based scheduling (cron-style)
+- [ ] Rollback on failure (restore previous state)
+- [ ] Audit log (who started/stopped what when)
+- [ ] API authentication/authorization
+- [ ] Plugin system for custom resource validators
+
+## Design Constraints
+
+**Maintain:**
+- Minimal LoC (currently ~2400 lines)
+- Single binary, no dependencies beyond stdlib
+- All state in one JSON file
+- Zero resource type assumptions
+- Shell commands for validation
+
+**Avoid:**
+- Framework dependencies
+- Complex abstractions
+- Special-casing resource types
+- Breaking single-JSON-file invariant
