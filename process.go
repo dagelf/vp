@@ -549,21 +549,29 @@ func MatchAndUpdateInstances(state *State) error {
 				continue
 			}
 
-			// Check if resources match
+			// Check if resources match (if instance has resources)
+			// If instance has no resources, we skip resource matching and rely on command matching
+			shouldCheckResources := len(inst.Resources) > 0
 			resourcesMatch := false
-			if len(inst.Resources) > 0 && len(procResources) > 0 {
-				// Check if any resource matches
-				for rtype, rvalue := range inst.Resources {
-					if procResources[rtype] == rvalue {
-						resourcesMatch = true
-						break
+
+			if shouldCheckResources {
+				// Instance has resources, so we need to find a match in the process
+				if len(procResources) > 0 {
+					// Check if any resource matches
+					for rtype, rvalue := range inst.Resources {
+						if procResources[rtype] == rvalue {
+							resourcesMatch = true
+							break
+						}
 					}
 				}
+				// If instance has resources but none matched, skip this instance
+				if !resourcesMatch {
+					continue
+				}
 			}
-
-			if !resourcesMatch {
-				continue
-			}
+			// If instance has no resources, we skip the resource check entirely
+			// and proceed to command matching below
 
 			// Resources match - now check if command matches
 			// Get full parent chain for the discovered process
