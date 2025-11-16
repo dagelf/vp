@@ -62,6 +62,11 @@ func DefaultResourceTypes() map[string]*ResourceType {
 			Check:   "", // No check - always available
 			Counter: false,
 		},
+		"workdir": {
+			Name:    "workdir",
+			Check:   "", // No check - always available (informational resource)
+			Counter: false,
+		},
 	}
 }
 

@@ -298,6 +298,22 @@ func MonitorProcess(state *State, pid int, name string) (*Instance, error) {
 	managed := canManageProcess(pid)
 	resources := make(map[string]string)
 
+	// Add ports as tcpport resources
+	// Since resources is map[string]string, we use indexed keys for multiple ports
+	for i, port := range procInfo.Ports {
+		portStr := fmt.Sprintf("%d", port)
+		if i == 0 {
+			resources["tcpport"] = portStr // First port uses standard key
+		} else {
+			resources[fmt.Sprintf("tcpport%d", i)] = portStr // Additional ports get indexed keys
+		}
+	}
+
+	// Add working directory as workdir resource
+	if cwd != "" {
+		resources["workdir"] = cwd
+	}
+
 	inst := &Instance{
 		Name:      name,
 		Command:   cmdline,
