@@ -22,6 +22,7 @@ type Instance struct {
 	Started   int64             `json:"started"`   // Unix timestamp
 	Cwd       string            `json:"cwd,omitempty"`       // Working directory
 	Managed   bool              `json:"managed"`             // true=can stop/restart, false=monitor only
+	CPUTime   float64           `json:"cputime,omitempty"`   // CPU time in seconds
 	Error     string            `json:"error,omitempty"`
 }
 
@@ -493,48 +494,135 @@ func DiscoverProcesses(state *State, portsOnly bool) ([]map[string]interface{}, 
 }
 
 // MatchAndUpdateInstances discovers running processes and updates existing instances
-// if their resources and commands match
+// Before every refresh cycle:
+// 1. Check if PIDs for instances are still running
+// 2. If not, check if a program by same name is running
+// 3. If so, check if it uses the same port
+// 4. If ports match, update the state to running and the PID
 func MatchAndUpdateInstances(state *State) error {
+	// Step 1: Check if existing PIDs are still running and update CPU time
+	for _, inst := range state.Instances {
+		if inst.Status == "running" {
+			if IsProcessRunning(inst.PID) {
+				// Update CPU time for running processes
+				if procInfo, err := ReadProcessInfo(inst.PID); err == nil {
+					inst.CPUTime = procInfo.CPUTime
+				}
+			} else {
+				// Process stopped
+				inst.Status = "stopped"
+				inst.PID = 0
+				inst.CPUTime = 0
+			}
+		}
+	}
+
+	// Step 2: For stopped instances, try to find matching processes
 	// Discover all processes (not just those with ports)
 	processes, err := DiscoverProcesses(state, false)
 	if err != nil {
 		return fmt.Errorf("failed to discover processes: %w", err)
 	}
 
-	// For each discovered process, try to match it with existing instances
-	for _, proc := range processes {
-		pid, ok := proc["pid"].(int)
-		if !ok {
+	// Track which PIDs have been matched to prevent multiple instances claiming the same PID
+	matchedPIDs := make(map[int]bool)
+
+	// For each stopped instance, try to find a matching process
+	for _, inst := range state.Instances {
+		if inst.Status != "stopped" {
 			continue
 		}
 
-		// Get process info for command matching
-		procInfo, err := ReadProcessInfo(pid)
-		if err != nil {
+		// Extract expected process name from instance command
+		expectedName := extractProcessName(inst.Command)
+		if expectedName == "" {
 			continue
 		}
 
-		// Try to match with existing instances
-		// Matching is done purely by command similarity
-		for _, inst := range state.Instances {
-			// Skip instances that are already running
-			if inst.Status == "running" && IsProcessRunning(inst.PID) {
+		// Try to find a matching process
+		for _, proc := range processes {
+			pid, ok := proc["pid"].(int)
+			if !ok {
 				continue
 			}
 
-			// Check if command matches
-			// Use bidirectional substring matching
-			if strings.Contains(procInfo.Cmdline, inst.Command) || strings.Contains(inst.Command, procInfo.Cmdline) {
-				// Update the instance
+			// Skip if this PID has already been matched to another instance
+			if matchedPIDs[pid] {
+				continue
+			}
+
+			// Get process info
+			procInfo, err := ReadProcessInfo(pid)
+			if err != nil {
+				continue
+			}
+
+			// Check if process name matches
+			if procInfo.Name != expectedName {
+				continue
+			}
+
+			// If instance has ports, verify they match
+			portsMatch := true
+			if len(inst.Resources) > 0 {
+				for resType, resValue := range inst.Resources {
+					if resType == "tcpport" || resType == "port" {
+						expectedPort, _ := strconv.Atoi(resValue)
+						if expectedPort > 0 {
+							hasPort := false
+							for _, port := range procInfo.Ports {
+								if port == expectedPort {
+									hasPort = true
+									break
+								}
+							}
+							if !hasPort {
+								portsMatch = false
+								break
+							}
+						}
+					}
+				}
+			}
+
+			if portsMatch {
+				// Match found! Update instance and mark PID as matched
 				inst.PID = pid
 				inst.Status = "running"
 				inst.Started = time.Now().Unix()
-
+				inst.CPUTime = procInfo.CPUTime
+				matchedPIDs[pid] = true
 				state.Save()
-				break // Move to next discovered process
+				break // Move to next instance
 			}
 		}
 	}
 
+	state.Save()
 	return nil
+}
+
+// extractProcessName extracts the process name from a command string
+// Returns the executable name without path
+func extractProcessName(command string) string {
+	if command == "" {
+		return ""
+	}
+
+	// Split by spaces to get the first part (executable)
+	parts := strings.Fields(command)
+	if len(parts) == 0 {
+		return ""
+	}
+
+	// Get the executable path
+	exe := parts[0]
+
+	// Remove path, keep only the filename
+	lastSlash := strings.LastIndex(exe, "/")
+	if lastSlash >= 0 {
+		exe = exe[lastSlash+1:]
+	}
+
+	return exe
 }

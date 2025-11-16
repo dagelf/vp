@@ -42,13 +42,8 @@ func handleInstances(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case "GET":
-		// Update status for all instances
-		for _, inst := range state.Instances {
-			if inst.Status == "running" && !IsProcessRunning(inst.PID) {
-				inst.Status = "stopped"
-				inst.PID = 0
-			}
-		}
+		// Run discovery and matching to update instance status and PIDs
+		MatchAndUpdateInstances(state)
 		json.NewEncoder(w).Encode(state.Instances)
 
 	case "POST":

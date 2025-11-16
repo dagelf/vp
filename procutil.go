@@ -19,6 +19,7 @@ type ProcessInfo struct {
 	Cwd     string            `json:"cwd"`    // Working directory
 	Environ map[string]string `json:"environ"` // Environment variables
 	Ports   []int             `json:"ports"`  // TCP ports this process listens on
+	CPUTime float64           `json:"cputime"` // CPU time in seconds
 }
 
 // ShellNames contains common shell executable names
@@ -71,6 +72,16 @@ func ReadProcessInfo(pid int) (*ProcessInfo, error) {
 	fields := strings.Fields(statStr[lastParen+1:])
 	if len(fields) >= 2 {
 		info.PPID, _ = strconv.Atoi(fields[1]) // Third field is PPID
+	}
+
+	// Extract CPU time (utime + stime)
+	// Fields 14 and 15 are utime and stime (in clock ticks)
+	// After the name, they are at indices 11 and 12
+	if len(fields) >= 13 {
+		utime, _ := strconv.ParseInt(fields[11], 10, 64)
+		stime, _ := strconv.ParseInt(fields[12], 10, 64)
+		// Convert from clock ticks to seconds (typically 100 ticks/second on Linux)
+		info.CPUTime = float64(utime+stime) / 100.0
 	}
 
 	// Read command line
