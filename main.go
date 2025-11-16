@@ -57,6 +57,11 @@ func handleStart(args []string) {
 		os.Exit(1)
 	}
 
+	// Run discovery to check if matching processes are already running
+	if err := MatchAndUpdateInstances(state); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: discovery failed: %v\n", err)
+	}
+
 	templateID := args[0]
 	name := args[1]
 	vars := parseVars(args[2:])
@@ -91,6 +96,11 @@ func handleStop(args []string) {
 		os.Exit(1)
 	}
 
+	// Run discovery to get current process state
+	if err := MatchAndUpdateInstances(state); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: discovery failed: %v\n", err)
+	}
+
 	name := args[0]
 	inst := state.Instances[name]
 	if inst == nil {
@@ -113,6 +123,11 @@ func handleDelete(args []string) {
 	if len(args) < 1 {
 		fmt.Fprintf(os.Stderr, "Usage: vp delete <name>\n")
 		os.Exit(1)
+	}
+
+	// Run discovery to get current process state
+	if err := MatchAndUpdateInstances(state); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: discovery failed: %v\n", err)
 	}
 
 	name := args[0]
@@ -141,6 +156,11 @@ func handleRestart(args []string) {
 	if len(args) < 1 {
 		fmt.Fprintf(os.Stderr, "Usage: vp restart <name>\n")
 		os.Exit(1)
+	}
+
+	// Run discovery to get current process state
+	if err := MatchAndUpdateInstances(state); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: discovery failed: %v\n", err)
 	}
 
 	name := args[0]
@@ -289,6 +309,12 @@ func addResourceType(name string, args []string) {
 }
 
 func listInstances() {
+	// Run discovery to match existing processes with stopped instances
+	if err := MatchAndUpdateInstances(state); err != nil {
+		// Don't fail on discovery errors, just warn
+		fmt.Fprintf(os.Stderr, "Warning: discovery failed: %v\n", err)
+	}
+
 	if len(state.Instances) == 0 {
 		fmt.Println("No instances running")
 		return
@@ -419,6 +445,11 @@ func handleInspect(args []string) {
 		fmt.Fprintf(os.Stderr, "Usage: vp inspect <name>\n")
 		fmt.Fprintf(os.Stderr, "  Shows detailed information about an instance\n")
 		os.Exit(1)
+	}
+
+	// Run discovery to get current process state
+	if err := MatchAndUpdateInstances(state); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: discovery failed: %v\n", err)
 	}
 
 	name := args[0]
