@@ -169,6 +169,12 @@ func handleServe(args []string) {
 		port = args[0]
 	}
 
+	// Run discovery on startup to match existing processes with instances
+	fmt.Println("Running discovery to match existing processes...")
+	if err := MatchAndUpdateInstances(state); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: discovery failed: %v\n", err)
+	}
+
 	fmt.Printf("Starting web UI on http://localhost:%s\n", port)
 	if err := ServeHTTP(":" + port); err != nil {
 		fmt.Fprintf(os.Stderr, "Error starting server: %v\n", err)
