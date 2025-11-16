@@ -2,9 +2,13 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 // State holds all application state
@@ -157,4 +161,86 @@ func loadDefaultTemplates() map[string]*Template {
 			},
 		},
 	}
+}
+
+// WatchConfig watches the state file for changes and reloads it automatically
+func (s *State) WatchConfig() error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		homeDir = "/tmp"
+	}
+	stateFile := filepath.Join(homeDir, ".vibeprocess", "state.json")
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return fmt.Errorf("failed to create watcher: %w", err)
+	}
+
+	// Watch the state file
+	err = watcher.Add(stateFile)
+	if err != nil {
+		// If file doesn't exist yet, watch the directory instead
+		stateDir := filepath.Join(homeDir, ".vibeprocess")
+		if err := os.MkdirAll(stateDir, 0755); err != nil {
+			return fmt.Errorf("failed to create state directory: %w", err)
+		}
+		err = watcher.Add(stateDir)
+		if err != nil {
+			return fmt.Errorf("failed to watch state directory: %w", err)
+		}
+	}
+
+	fmt.Println("Started watching config file for changes:", stateFile)
+
+	go func() {
+		defer watcher.Close()
+
+		// Debounce timer to avoid reloading multiple times for rapid changes
+		var debounceTimer *time.Timer
+
+		for {
+			select {
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+
+				// Only reload on Write or Create events for the state file
+				if (event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create) &&
+					filepath.Base(event.Name) == "state.json" {
+
+					// Debounce: wait 100ms before reloading to group rapid changes
+					if debounceTimer != nil {
+						debounceTimer.Stop()
+					}
+
+					debounceTimer = time.AfterFunc(100*time.Millisecond, func() {
+						fmt.Println("Config file changed, reloading...")
+
+						// Load the new state
+						newState := LoadState()
+
+						// Update the global state with proper locking
+						s.mu.Lock()
+						s.Instances = newState.Instances
+						s.Templates = newState.Templates
+						s.Resources = newState.Resources
+						s.Counters = newState.Counters
+						s.Types = newState.Types
+						s.mu.Unlock()
+
+						fmt.Println("Config reloaded successfully")
+					})
+				}
+
+			case err, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+				fmt.Printf("Config watcher error: %v\n", err)
+			}
+		}
+	}()
+
+	return nil
 }
