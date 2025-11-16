@@ -27,18 +27,6 @@ go build -o vp
 ./vp stop mydb
 ```
 
-## Architecture
-
-```
-vp/
-├── main.go          # CLI entry point (~80 lines)
-├── state.go         # State persistence (~100 lines)
-├── process.go       # Process lifecycle (~150 lines)
-├── resource.go      # Generic resource system (~100 lines)
-├── api.go           # HTTP server (~70 lines)
-└── web.html         # Embedded UI (single page)
-```
-
 ## Resource System
 
 Resources are just **type:value pairs** validated by **shell commands**:
