@@ -1,4 +1,4 @@
-# Vibe Processmanager
+# Vibe Processmanager aka. Visual Processmanager
 
 **Process orchestration with zero assumptions**
 
