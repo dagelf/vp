@@ -107,7 +107,7 @@
             font-weight: 600;
         }
         .status.running { background: #28a745; color: white; }
-        .status.running.stale { background: #6c757d; color: white; }
+        .status.running.stale { background: #adb5bd; color: white; }
         .status.stopped { background: #6c757d; color: white; }
         .status.starting { background: #ffc107; color: black; }
         .status.error { background: #dc3545; color: white; }
@@ -131,6 +131,13 @@
         button.small {
             padding: 4px 8px;
             font-size: 11px;
+        }
+        button.stale {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        button.stale:hover {
+            background: inherit;
         }
         button.action-add {
             background: #007bff;
@@ -165,13 +172,13 @@
             background: #40c057;
         }
         button.action-lightning {
-            background: #ffd43b;
-            color: #333;
-            border-color: #ffd43b;
+            background: #007bff;
+            color: white;
+            border-color: #007bff;
             font-size: 16px;
         }
         button.action-lightning:hover {
-            background: #fcc419;
+            background: #0056b3;
         }
 
         .card {
@@ -401,7 +408,7 @@
 
         // Check if data is stale
         function checkStaleness() {
-            if (!lastRefreshTime) {
+            if (!lastInstancesUpdate) {
                 isDataStale = false;
                 return;
             }
@@ -412,9 +419,10 @@
                 return;
             }
 
-            const timeSinceRefresh = (Date.now() - lastRefreshTime) / 1000;
+            const timeSinceRefresh = (Date.now() - lastInstancesUpdate) / 1000;
             const wasStale = isDataStale;
-            isDataStale = timeSinceRefresh > (interval * 1.5); // Mark stale if 1.5x interval has passed
+            // Mark stale if refresh interval + 5 seconds has passed (matches red threshold)
+            isDataStale = timeSinceRefresh >= (interval + 5);
 
             // Re-render if staleness state changed
             if (wasStale !== isDataStale) {
@@ -449,11 +457,16 @@
                 const ageSeconds = (now - lastInstancesUpdate) / 1000;
                 const dot = document.getElementById('instances-freshness-dot');
                 const text = document.getElementById('instances-freshness-text');
+                const refreshInterval = parseFloat(document.getElementById('refresh-interval').value);
 
-                if (ageSeconds < 2) {
+                // Dynamic thresholds based on refresh interval
+                const greenThreshold = refreshInterval + 2;
+                const yellowThreshold = refreshInterval + 5;
+
+                if (ageSeconds < greenThreshold) {
                     dot.className = 'freshness-dot fresh';
                     text.textContent = `Live (${ageSeconds.toFixed(1)}s ago)`;
-                } else if (ageSeconds < 5) {
+                } else if (ageSeconds < yellowThreshold) {
                     dot.className = 'freshness-dot stale';
                     text.textContent = `${ageSeconds.toFixed(1)}s ago`;
                 } else {
@@ -567,19 +580,20 @@
             // Build new HTML
             const newHTML = instancesArray.map(i => {
                 const actions = [];
+                const staleClass = isDataStale ? ' stale' : '';
 
                 if (i.status === 'running') {
-                    actions.push(`<button class="small action-stop" onclick="stopInstance('${i.name}')">Stop</button>`);
+                    actions.push(`<button class="small action-stop${staleClass}" onclick="stopInstance('${i.name}')">Stop</button>`);
                 } else if (i.status === 'stopped') {
-                    actions.push(`<button class="small action-start" onclick="restartInstance('${i.name}')">Start</button>`);
+                    actions.push(`<button class="small action-start${staleClass}" onclick="restartInstance('${i.name}')">Start</button>`);
                 }
 
-                actions.push(`<button class="small action-add" onclick="addAsTemplate('${i.name}')">+</button>`);
-                actions.push(`<button class="small action-remove" onclick="deleteInstance('${i.name}')">-</button>`);
+                actions.push(`<button class="small action-add${staleClass}" onclick="addAsTemplate('${i.name}')">+</button>`);
+                actions.push(`<button class="small action-remove${staleClass}" onclick="deleteInstance('${i.name}')">-</button>`);
 
                 // Add lightning button if action is defined
                 if (i.action) {
-                    actions.push(`<button class="small action-lightning" onclick="executeAction('${i.name}', '${escapeQuotes(i.action)}')">⚡</button>`);
+                    actions.push(`<button class="small action-lightning${staleClass}" onclick="executeAction('${i.name}', '${escapeQuotes(i.action)}')">⚡</button>`);
                 }
                 // Add 'stale' class to running status when data is stale
                 const statusClass = i.status === 'running' && isDataStale ? `${i.status} stale` : i.status;
