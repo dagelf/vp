@@ -289,7 +289,7 @@ func RestartProcess(state *State, inst *Instance) error {
 	return nil
 }
 
-// MonitorProcess adds an existing process to vibeprocess as monitored (not managed)
+// MonitorProcess adds an existing process to vp as monitored (not managed)
 func MonitorProcess(state *State, pid int, name string) (*Instance, error) {
 	// Check if instance name already exists
 	if state.Instances[name] != nil {

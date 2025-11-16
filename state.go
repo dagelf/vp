@@ -22,14 +22,14 @@ type State struct {
 	RemotesAllowed map[string]bool            `json:"remotes_allowed"` // origin -> allowed (true=can execute, false=blocked)
 }
 
-// LoadState loads state from ~/.vibeprocess/state.json
+// LoadState loads state from ~/.config/vp/state.json
 func LoadState() *State {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		// Fallback to /tmp if home directory cannot be determined
 		homeDir = "/tmp"
 	}
-	stateFile := filepath.Join(homeDir, ".vibeprocess", "state.json")
+	stateFile := filepath.Join(homeDir, ".config/vp/", "state.json")
 
 	data, err := os.ReadFile(stateFile)
 	if err != nil {
