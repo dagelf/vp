@@ -320,21 +320,36 @@ func listInstances() {
 		return
 	}
 
-	fmt.Printf("%-20s %-10s %-8s %-40s %s\n", "NAME", "STATUS", "PID", "COMMAND", "RESOURCES")
+	fmt.Printf("%-20s %-10s %-8s %-12s %-40s %s\n", "NAME", "STATUS", "PID", "CPU TIME", "COMMAND", "RESOURCES")
 	for name, inst := range state.Instances {
 		resources := ""
 		for k, v := range inst.Resources {
 			resources += fmt.Sprintf("%s=%s ", k, v)
 		}
 
-		// Check if process is still running
-		if inst.Status == "running" && !IsProcessRunning(inst.PID) {
-			inst.Status = "stopped"
-			inst.PID = 0
-		}
+		// Format CPU time
+		cpuTimeStr := formatCPUTime(inst.CPUTime)
 
-		fmt.Printf("%-20s %-10s %-8d %-40s %s\n",
-			name, inst.Status, inst.PID, truncate(inst.Command, 40), resources)
+		fmt.Printf("%-20s %-10s %-8d %-12s %-40s %s\n",
+			name, inst.Status, inst.PID, cpuTimeStr, truncate(inst.Command, 40), resources)
+	}
+}
+
+func formatCPUTime(seconds float64) string {
+	if seconds == 0 {
+		return "-"
+	}
+
+	if seconds < 60 {
+		return fmt.Sprintf("%.2fs", seconds)
+	} else if seconds < 3600 {
+		minutes := int(seconds / 60)
+		secs := int(seconds) % 60
+		return fmt.Sprintf("%dm %ds", minutes, secs)
+	} else {
+		hours := int(seconds / 3600)
+		minutes := int(seconds/60) % 60
+		return fmt.Sprintf("%dh %dm", hours, minutes)
 	}
 }
 

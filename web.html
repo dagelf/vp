@@ -79,6 +79,23 @@
             background: #333;
             color: white;
             font-weight: 600;
+            cursor: pointer;
+            user-select: none;
+        }
+        th:hover {
+            background: #444;
+        }
+        th.sortable::after {
+            content: ' ⇅';
+            opacity: 0.3;
+        }
+        th.sort-asc::after {
+            content: ' ↑';
+            opacity: 1;
+        }
+        th.sort-desc::after {
+            content: ' ↓';
+            opacity: 1;
         }
         tr:hover { background: #f9f9f9; }
 
@@ -185,10 +202,11 @@
         <table id="instances-table">
             <thead>
                 <tr>
-                    <th>Name</th>
-                    <th>Status</th>
-                    <th>PID</th>
-                    <th>Command</th>
+                    <th class="sortable" data-sort="name">Name</th>
+                    <th class="sortable" data-sort="status">Status</th>
+                    <th class="sortable" data-sort="pid">PID</th>
+                    <th class="sortable" data-sort="cputime">CPU Time</th>
+                    <th class="sortable" data-sort="command">Command</th>
                     <th>Resources</th>
                     <th>Actions</th>
                 </tr>
@@ -214,6 +232,7 @@
             <thead>
                 <tr>
                     <th>PID</th>
+                    <th>Name</th>
                     <th>Command</th>
                     <th>Working Directory</th>
                     <th>Ports</th>
@@ -274,6 +293,8 @@
         let types = {};
         let refreshIntervalId = null;
         let lastInstancesHTML = '';
+        let sortColumn = 'name';
+        let sortDirection = 'asc';
 
         // Initialize refresh interval
         function updateRefreshInterval() {
@@ -300,12 +321,49 @@
 
             const tbody = document.getElementById('instances-list');
             if (Object.keys(instances).length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;">No instances running</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#999;">No instances running</td></tr>';
                 return;
             }
 
+            // Convert to array and sort
+            let instancesArray = Object.values(instances);
+            instancesArray.sort((a, b) => {
+                let aVal, bVal;
+
+                switch(sortColumn) {
+                    case 'name':
+                        aVal = a.name || '';
+                        bVal = b.name || '';
+                        break;
+                    case 'status':
+                        aVal = a.status || '';
+                        bVal = b.status || '';
+                        break;
+                    case 'pid':
+                        aVal = a.pid || 0;
+                        bVal = b.pid || 0;
+                        break;
+                    case 'cputime':
+                        aVal = a.cputime || 0;
+                        bVal = b.cputime || 0;
+                        break;
+                    case 'command':
+                        aVal = a.command || '';
+                        bVal = b.command || '';
+                        break;
+                    default:
+                        return 0;
+                }
+
+                if (typeof aVal === 'string') {
+                    return sortDirection === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+                } else {
+                    return sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
+                }
+            });
+
             // Build new HTML
-            const newHTML = Object.values(instances).map(i => {
+            const newHTML = instancesArray.map(i => {
                 const actions = [];
 
                 if (i.status === 'running') {
@@ -322,6 +380,7 @@
                         <td><strong>${i.name}</strong></td>
                         <td><span class="status ${i.status}">${i.status}</span></td>
                         <td>${i.pid || 'N/A'}</td>
+                        <td>${formatCPUTime(i.cputime)}</td>
                         <td><span class="code">${truncate(i.command, 60)}</span></td>
                         <td>${formatResources(i.resources)}</td>
                         <td class="actions">
@@ -336,6 +395,9 @@
                 tbody.innerHTML = newHTML;
                 lastInstancesHTML = newHTML;
             }
+
+            // Update sort indicators
+            updateSortIndicators();
         }
 
         async function loadTemplates() {
@@ -480,12 +542,14 @@
             tbody.innerHTML = processes.map(p => {
                 const portsStr = p.ports && p.ports.length > 0 ? p.ports.join(', ') : '-';
                 const resourcesStr = formatResources(p.resources);
+                const nameStr = p.name || '-';
                 const cmdShort = truncate(p.command, 40);
                 const cwdShort = truncate(p.cwd, 30);
 
                 return `
                     <tr>
                         <td>${p.pid}</td>
+                        <td><strong>${nameStr}</strong></td>
                         <td><span class="code">${cmdShort}</span></td>
                         <td><span class="code">${cwdShort}</span></td>
                         <td>${portsStr}</td>
@@ -749,6 +813,55 @@
             if (!s || s.length <= n) return s;
             return s.substring(0, n) + '...';
         }
+
+        function formatCPUTime(seconds) {
+            if (!seconds || seconds === 0) return '-';
+
+            if (seconds < 60) {
+                return seconds.toFixed(2) + 's';
+            } else if (seconds < 3600) {
+                const minutes = Math.floor(seconds / 60);
+                const secs = (seconds % 60).toFixed(0);
+                return `${minutes}m ${secs}s`;
+            } else {
+                const hours = Math.floor(seconds / 3600);
+                const minutes = Math.floor((seconds % 3600) / 60);
+                return `${hours}h ${minutes}m`;
+            }
+        }
+
+        function updateSortIndicators() {
+            // Remove all sort classes
+            document.querySelectorAll('#instances-table th').forEach(th => {
+                th.classList.remove('sort-asc', 'sort-desc');
+            });
+
+            // Add sort class to current column
+            const currentTh = document.querySelector(`#instances-table th[data-sort="${sortColumn}"]`);
+            if (currentTh) {
+                currentTh.classList.add(sortDirection === 'asc' ? 'sort-asc' : 'sort-desc');
+            }
+        }
+
+        function sortBy(column) {
+            if (sortColumn === column) {
+                // Toggle direction
+                sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortColumn = column;
+                sortDirection = 'asc';
+            }
+            loadInstances();
+        }
+
+        // Add click handlers to sortable headers
+        document.addEventListener('DOMContentLoaded', () => {
+            document.querySelectorAll('#instances-table th.sortable').forEach(th => {
+                th.addEventListener('click', () => {
+                    sortBy(th.getAttribute('data-sort'));
+                });
+            });
+        });
 
         // Initial load
         loadInstances();
