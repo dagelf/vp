@@ -471,6 +471,11 @@ func DiscoverProcesses(state *State, portsOnly bool) ([]map[string]interface{}, 
 			continue // Skip processes we can't read
 		}
 
+		// Skip kernel threads (they have empty cmdline and PPID of 2 or 0)
+		if procInfo.Cmdline == "" && (procInfo.PPID == 2 || procInfo.PPID == 0 || pid == 2) {
+			continue
+		}
+
 		// If portsOnly, skip processes not listening on ports
 		if portsOnly && len(procInfo.Ports) == 0 {
 			continue

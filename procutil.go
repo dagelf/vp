@@ -24,6 +24,20 @@ var globalPortCache = &portCache{
 	ttl:     500 * time.Millisecond, // Cache for 500ms
 }
 
+// processInfoCache caches ProcessInfo to avoid redundant /proc reads
+type processInfoCache struct {
+	sync.RWMutex
+	cache     map[int]*ProcessInfo // pid -> ProcessInfo
+	timestamp map[int]time.Time    // pid -> last read time
+	ttl       time.Duration
+}
+
+var globalProcessCache = &processInfoCache{
+	cache:     make(map[int]*ProcessInfo),
+	timestamp: make(map[int]time.Time),
+	ttl:       1 * time.Second, // Cache process info for 1 second
+}
+
 // ProcessInfo contains detailed information about a discovered process
 type ProcessInfo struct {
 	PID     int               `json:"pid"`
@@ -163,12 +177,59 @@ func buildPortToProcessMap() (map[int][]int, error) {
 	return portToPIDs, nil
 }
 
-// ReadProcessInfo reads process information from /proc/[pid] (optimized version)
+// isKernelThread checks if a process is a kernel thread
+func isKernelThread(pid int, cmdline string) bool {
+	// Kernel threads have empty cmdline and PPID of 2 (kthreadd)
+	// or they are PID 2 itself
+	if pid == 2 {
+		return true
+	}
+	if cmdline == "" {
+		// Read PPID to confirm
+		statPath := fmt.Sprintf("/proc/%d/stat", pid)
+		statData, err := os.ReadFile(statPath)
+		if err != nil {
+			return false
+		}
+		statStr := string(statData)
+		lastParen := strings.LastIndex(statStr, ")")
+		if lastParen != -1 {
+			fields := strings.Fields(statStr[lastParen+1:])
+			if len(fields) >= 2 {
+				ppid, _ := strconv.Atoi(fields[1])
+				// Kernel threads have PPID of 2 or 0
+				if ppid == 2 || ppid == 0 {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// ReadProcessInfo reads process information from /proc/[pid] (optimized version with caching)
 func ReadProcessInfo(pid int) (*ProcessInfo, error) {
+	// Check cache first
+	globalProcessCache.RLock()
+	if cached, exists := globalProcessCache.cache[pid]; exists {
+		if time.Since(globalProcessCache.timestamp[pid]) < globalProcessCache.ttl {
+			globalProcessCache.RUnlock()
+			// Return a copy to avoid race conditions
+			infoCopy := *cached
+			return &infoCopy, nil
+		}
+	}
+	globalProcessCache.RUnlock()
+
 	procDir := fmt.Sprintf("/proc/%d", pid)
 
 	// Check if process exists
 	if _, err := os.Stat(procDir); os.IsNotExist(err) {
+		// Remove from cache if it no longer exists
+		globalProcessCache.Lock()
+		delete(globalProcessCache.cache, pid)
+		delete(globalProcessCache.timestamp, pid)
+		globalProcessCache.Unlock()
 		return nil, fmt.Errorf("process %d does not exist", pid)
 	}
 
@@ -221,38 +282,46 @@ func ReadProcessInfo(pid int) (*ProcessInfo, error) {
 		info.Cmdline = strings.TrimSpace(cmdline)
 	}
 
-	// Read executable path
-	exePath, err := os.Readlink(filepath.Join(procDir, "exe"))
-	if err == nil {
-		info.Exe = exePath
-	}
+	// Read executable path (skip for kernel threads to save I/O)
+	if !isKernelThread(pid, info.Cmdline) {
+		exePath, err := os.Readlink(filepath.Join(procDir, "exe"))
+		if err == nil {
+			info.Exe = exePath
+		}
 
-	// Read working directory
-	cwdPath, err := os.Readlink(filepath.Join(procDir, "cwd"))
-	if err == nil {
-		info.Cwd = cwdPath
-	}
+		// Read working directory
+		cwdPath, err := os.Readlink(filepath.Join(procDir, "cwd"))
+		if err == nil {
+			info.Cwd = cwdPath
+		}
 
-	// Read environment variables
-	environData, err := os.ReadFile(filepath.Join(procDir, "environ"))
-	if err == nil {
-		environStr := string(environData)
-		for _, pair := range strings.Split(environStr, "\x00") {
-			if pair == "" {
-				continue
+		// Read environment variables (skip for kernel threads)
+		environData, err := os.ReadFile(filepath.Join(procDir, "environ"))
+		if err == nil {
+			environStr := string(environData)
+			for _, pair := range strings.Split(environStr, "\x00") {
+				if pair == "" {
+					continue
+				}
+				parts := strings.SplitN(pair, "=", 2)
+				if len(parts) == 2 {
+					info.Environ[parts[0]] = parts[1]
+				}
 			}
-			parts := strings.SplitN(pair, "=", 2)
-			if len(parts) == 2 {
-				info.Environ[parts[0]] = parts[1]
-			}
+		}
+
+		// Read ports this process is listening on (lazy - only if not cached)
+		ports, err := GetPortsForProcess(pid)
+		if err == nil {
+			info.Ports = ports
 		}
 	}
 
-	// Read ports this process is listening on
-	ports, err := GetPortsForProcess(pid)
-	if err == nil {
-		info.Ports = ports
-	}
+	// Update cache
+	globalProcessCache.Lock()
+	globalProcessCache.cache[pid] = info
+	globalProcessCache.timestamp[pid] = time.Now()
+	globalProcessCache.Unlock()
 
 	return info, nil
 }
