@@ -28,33 +28,33 @@ func DefaultResourceTypes() map[string]*ResourceType {
 	return map[string]*ResourceType{
 		"tcpport": {
 			Name:    "tcpport",
-			Check:   "nc -z localhost ${value} && exit 1 || exit 0", // Fail if in use
+			Check:   "nc -z localhost ${value}", // Exits 0 if in use, 1 if available
 			Counter: true,
 			Start:   3000,
 			End:     9999,
 		},
 		"vncport": {
 			Name:    "vncport",
-			Check:   "nc -z localhost ${value} && exit 1 || exit 0",
+			Check:   "nc -z localhost ${value}", // Exits 0 if in use, 1 if available
 			Counter: true,
 			Start:   5900,
 			End:     5999,
 		},
 		"serialport": {
 			Name:    "serialport",
-			Check:   "nc -z localhost ${value} && exit 1 || exit 0",
+			Check:   "nc -z localhost ${value}", // Exits 0 if in use, 1 if available
 			Counter: true,
 			Start:   9600,
 			End:     9699,
 		},
 		"dbfile": {
 			Name:    "dbfile",
-			Check:   "test -f ${value} && exit 1 || exit 0", // Fail if exists
+			Check:   "test -f ${value}", // Exits 0 if exists, 1 if available
 			Counter: false,
 		},
 		"socket": {
 			Name:    "socket",
-			Check:   "test -S ${value} && exit 1 || exit 0", // Fail if socket exists
+			Check:   "test -S ${value}", // Exits 0 if exists, 1 if available
 			Counter: false,
 		},
 		"datadir": {
@@ -127,5 +127,7 @@ func CheckResource(rt *ResourceType, value string) bool {
 	// Execute check
 	cmd := exec.Command("sh", "-c", check)
 	err := cmd.Run()
-	return err == nil // Check command should exit 0 if available
+	// Natural command behavior: exit 0 = exists/in-use (not available)
+	// exit 1 = free/doesn't exist (available)
+	return err != nil // Resource is available if check command fails
 }
