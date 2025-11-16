@@ -4,7 +4,14 @@
 
 Zero-assumption process manager. Pure primitives for resource allocation + process control.
 
-**Philosophy:** Firmware-style design. No hardcoded resource types. Everything validated via shell commands.
+**Philosophy:** Firmware-style design. No hardcoded resource types. Everything validated via shell commands. Designed for Mars
+
+**Assume nothing, enable everything.**
+
+Want GPU allocation? Add a resource type.
+Want database connections? Add a resource type.
+Want anything? Just define a check command.
+Interact with anything? Just add an action. 
 
 ## Architecture
 
@@ -77,20 +84,20 @@ Hot-reload via inotify when file changes externally.
 **Roadmap:**
 
 ### Short-term
-- [ ] Template library/marketplace (shareable templates)
+- [ ] Code review doc
 - [ ] Better error messages (resource conflicts, validation failures)
-- [ ] Bulk operations (stop-all, restart-all by tag)
-- [ ] Resource tags/grouping (dev/prod/test)
-- [ ] Log capture (stdout/stderr to files)
 
 ### Medium-term
-- [ ] Process groups (start multiple related instances)
+- [ ] Resource tags/grouping (dev/prod/test)
+- [ ] Bulk operations (stop-all, restart-all by tag, default tags)
 - [ ] Health checks (periodic validation + auto-restart)
+
+### Long-term - to be decided. Would ruin the simplicity and there are other tools for this already
+- [ ] Log capture (stdout/stderr to files)
 - [ ] Resource limits (CPU/mem via cgroups)
 - [ ] Dependency chains (start B after A running)
 - [ ] Template inheritance (extend base templates)
-
-### Long-term
+- [ ] Template library/marketplace (shareable templates)
 - [ ] Multi-host coordination (cluster mode)
 - [ ] Time-based scheduling (cron-style)
 - [ ] Rollback on failure (restore previous state)
