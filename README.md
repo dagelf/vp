@@ -113,18 +113,8 @@ Features:
 - Add templates via form
 - Add resource types via form
 - View resource allocations
-- Auto-refresh every 5 seconds
-
-## Why This Design is Genius
-
-1. **Zero Hardcoded Assumptions** - Resources aren't hardcoded
-2. **Maximum Flexibility** - Add ANY resource type at runtime
-3. **Validation via Shell** - Use any installed tool
-4. **Counter Resources Not Special-Cased** - Just a boolean flag
-5. **Brutally Simple** - 6 files, ~500 lines
-6. **Firmware-Style** - Pure primitives, users configure behavior
-7. **Debuggable** - Human-readable JSON state
-8. **Extensible Without Code Changes** - Add types via CLI
+- Auto-refresh
+- Responsive
 
 ## State Storage
 
