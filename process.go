@@ -512,6 +512,7 @@ func DiscoverProcesses(state *State, portsOnly bool) ([]map[string]interface{}, 
 		// Build result entry
 		entry := map[string]interface{}{
 			"pid":       procInfo.PID,
+			"ppid":      procInfo.PPID,
 			"name":      procInfo.Name,
 			"command":   procInfo.Cmdline,
 			"cwd":       procInfo.Cwd,
