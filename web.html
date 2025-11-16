@@ -379,6 +379,9 @@
     </div>
 
     <script>
+        // API Configuration - actions always go to localhost
+        const ACTION_API_BASE = 'http://localhost:8080';
+
         let instances = {};
         let templates = {};
         let resources = {};
@@ -1008,9 +1011,9 @@
                 // Open URL in new tab
                 window.open(action, '_blank');
             } else {
-                // Execute command via API
+                // Execute command via API - always goes to localhost
                 try {
-                    const response = await fetch('/api/execute-action', {
+                    const response = await fetch(ACTION_API_BASE + '/api/execute-action', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({
