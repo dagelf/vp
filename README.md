@@ -4,7 +4,7 @@
 
 Just run random commands and let the process manager keep them running.
 
-_This was first and foremost a test to see how good Claude Sonnet 3.5 was at the time of the first commits. It has not been audited well, yet, so use at your own peril. Audit should be quite rapid though due to the simplicity of the design._
+_This was first and foremost a test to see how good Claude Sonnet 3.5 was at the time of the first commits. It has not been audited well, yet, so use at your own peril. Audit should be quite rapid though due to the simplicity of the design. There is also a [C++ version](https://github.com/dagelf/vp-c)._
 
 Visual Processmanager is an ultra-lean and ultra-flexible process manager built on a radical philosophy: make **zero assumptions** about what resources are or how they work. It picks up from the current state of your system and can remember what was running, restart it, etc. Everything is user-defined through simple shell commands or great Web UX.
 
