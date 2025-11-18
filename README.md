@@ -4,6 +4,10 @@
 
 Just run random commands and let the process manager keep them running.
 
+<img width="1344" height="475" alt="Screenshot 2025-11-19 at 06-05-32 Vibe Processmanager" src="https://github.com/user-attachments/assets/a1fb4db0-6c44-4913-997a-329114381c73" />
+
+<img width="1344" height="565" alt="Screenshot 2025-11-19 at 06-06-55 Vibe Processmanager" src="https://github.com/user-attachments/assets/c5e1b9db-6fe9-4066-9a43-e34ac401f6c8" />
+
 _This was first and foremost a test to see how good Claude Sonnet 3.5 was at the time of the first commits. It has not been audited well, yet, so use at your own peril. Audit should be quite rapid though due to the simplicity of the design. There is also a [C++ version](https://github.com/dagelf/vp-c)._
 
 Visual Processmanager is an ultra-lean and ultra-flexible process manager built on a radical philosophy: make **zero assumptions** about what resources are or how they work. It picks up from the current state of your system and can remember what was running, restart it, etc. Everything is user-defined through simple shell commands or great Web UX.
